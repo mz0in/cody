@@ -4,11 +4,11 @@
 }
 
 .transcript-item {
-    font-size: var(--vscode-editor-font-size);
+    font-size: var(--vscode-font-size);
     font-family: var(--vscode-font-family);
     font-weight: var(--vscode-font-weight);
     border-color: var(--vscode-sideBarSectionHeader-border);
-    padding: 15px 15px 15px 20px;
+    padding: 1rem 1rem 1rem 1.25rem;
     color: var(--vscode-foreground);
 }
 
@@ -27,7 +27,8 @@ body[data-vscode-theme-kind='vscode-high-contrast'] .human-transcript-item {
     background-color: var(--vscode-sideBar-foreground, currentColor);
 }
 
-.transcript-item code, .transcript-item pre {
+.transcript-item code,
+.transcript-item pre {
     font-family: var(--vscode-editor-font-family);
     font-size: var(--vscode-editor-font-size);
 }
@@ -57,13 +58,6 @@ body[data-vscode-theme-kind='vscode-light'] .transcript-item pre > code {
 .transcript-item ul:not(.transcript-action *),
 .transcript-item ol:not(.transcript-action *) {
     padding-left: 2rem;
-}
-
-.transcript-action {
-    background: var(--vscode-button-secondaryBackground);
-    color: var(--vscode-button-secondaryForeground);
-    font-size: var(--vscode-editor-font-size);
-    margin-top: 5px;
 }
 
 .code-blocks-copy-button,
@@ -112,15 +106,20 @@ body[data-vscode-theme-kind='vscode-light'] .transcript-item pre > code {
     color: var(--vscode-input-foreground);
     border: 1px solid transparent;
     border-radius: 2px;
-    padding: 8px 8px 32px 8px;
+    /* Extra right padding to ensure it doesn't overlap with enhanced context button */
+    padding: 0.5rem 32px 0.5rem 0.5rem;
     font: inherit;
     width: 100%;
     overflow: hidden;
-
     min-height: 3.5rem;
-
     /* Place on top of each other */
     grid-area: 1 / 1 / 2 / 2;
+}
+
+/* Unset for the new chat ui */
+.new-chat-input,
+.new-chat-input-container::after {
+    min-height: unset;
 }
 
 .chat-input {
@@ -194,7 +193,10 @@ body[data-vscode-theme-kind='vscode-light'] .transcript-item pre > code {
 }
 
 .submit-button {
-    color: var(--foreground);
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    display: flex;
+    justify-content: center;
 }
 
 .submit-button,
@@ -203,22 +205,12 @@ body[data-vscode-theme-kind='vscode-light'] .transcript-item pre > code {
 }
 
 .submit-button[disabled] {
-    pointer-events: none;
+    opacity: 0.4;
+    cursor: default;
 }
 
-.stop-generating-button {
-    padding: 0;
-    border-radius: 1rem;
-
-    animation: fadeInSlideUp 1s 1;
-}
-
-.stop-generating-button > i {
-    margin-right: 0.25rem;
-}
-
-.stop-generating-button:active {
-    transition: all 0.5s linear;
+.submit-button svg {
+    opacity: 1;
 }
 
 .thumbs-down-feedback-container {
@@ -233,15 +225,4 @@ body[data-vscode-theme-kind='vscode-light'] .transcript-item pre > code {
        not-allowed after you submit feedback. So we reset it back to the
        default cursor to fit in nicer with standard VS Code native behaviour */
     cursor: default;
-}
-
-@keyframes fadeInSlideUp {
-    from {
-        opacity: 0;
-        margin-top: var(--spacing);
-    }
-    to {
-        opacity: 1;
-        margin: 0;
-    }
 }

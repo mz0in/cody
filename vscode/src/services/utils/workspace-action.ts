@@ -1,4 +1,9 @@
 import * as vscode from 'vscode'
+import { URI } from 'vscode-uri'
+
+import { ActiveTextEditorSelectionRange } from '@sourcegraph/cody-shared'
+
+import { openUri } from '../../chat/chat-view/chat-helpers'
 
 let workspaceRootUri = vscode.workspace.workspaceFolders?.[0]?.uri
 let serverEndpoint = ''
@@ -15,15 +20,25 @@ export function workspaceActionsOnConfigChange(workspaceUri: vscode.Uri | null, 
 /**
  * Open file in editor or in sourcegraph
  */
-export async function openFilePath(filePath: string, currentViewColumn?: vscode.ViewColumn): Promise<void> {
-    void vscode.commands.executeCommand('vscode.open', filePath)
+export async function openFilePath(
+    filePath: string,
+    uri?: URI,
+    currentViewColumn?: vscode.ViewColumn,
+    range?: ActiveTextEditorSelectionRange
+): Promise<void> {
     if (!workspaceRootUri) {
         throw new Error('Failed to open file: missing workspace')
+    }
+
+    if (uri) {
+        await openUri(uri, range, currentViewColumn)
+        return
     }
 
     try {
         const workspaceFileUri = vscode.Uri.joinPath(workspaceRootUri, filePath)
         const doc = await vscode.workspace.openTextDocument(workspaceFileUri)
+        const selection = range ? new vscode.Range(range.start.line, 0, range.end.line, 0) : range
 
         // Open file next to current webview panel column
         let viewColumn = vscode.ViewColumn.Beside
@@ -31,7 +46,7 @@ export async function openFilePath(filePath: string, currentViewColumn?: vscode.
             viewColumn = currentViewColumn - 1 || currentViewColumn + 1
         }
 
-        await vscode.window.showTextDocument(doc, { viewColumn, preserveFocus: false })
+        await vscode.window.showTextDocument(doc, { selection, viewColumn, preserveFocus: false })
     } catch {
         // Try to open the file in the sourcegraph view
         const sourcegraphSearchURL = new URL(`/search?q=context:global+file:${filePath}`, serverEndpoint).href

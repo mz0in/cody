@@ -8,6 +8,7 @@ import { isDefined } from '@sourcegraph/cody-shared/src/common'
 
 import { locationKeyFn } from '../../../../graph/lsp/graph'
 import { getGraphDocumentSections as defaultGetDocumentSections, DocumentSection } from '../../../../graph/lsp/sections'
+import { getContextRange } from '../../../doc-context-getters'
 import { ContextRetriever, ContextRetrieverOptions, ContextSnippet } from '../../../types'
 import { createSubscriber } from '../../../utils'
 import { baseLanguageId } from '../../utils'
@@ -80,15 +81,14 @@ export class SectionHistoryRetriever implements ContextRetriever {
     public async retrieve({
         document,
         position,
-        docContext: { contextRange },
+        docContext,
     }: {
         document: ContextRetrieverOptions['document']
         position: ContextRetrieverOptions['position']
-        docContext: {
-            contextRange: ContextRetrieverOptions['docContext']['contextRange']
-        }
+        docContext: ContextRetrieverOptions['docContext']
     }): Promise<ContextSnippet[]> {
         const section = this.getSectionAtPosition(document, position)
+        const contextRange = getContextRange(document, docContext)
 
         function overlapsContextRange(uri: vscode.Uri, range?: { startLine: number; endLine: number }): boolean {
             if (!contextRange || !range || uri.toString() !== document.uri.toString()) {
@@ -132,7 +132,7 @@ export class SectionHistoryRetriever implements ContextRetriever {
                             const textDocument = await vscode.workspace.openTextDocument(uri)
                             const fileName = path.normalize(vscode.workspace.asRelativePath(uri.fsPath))
                             const content = textDocument.getText(section.location.range)
-                            return { fileName, content }
+                            return { fileUri: uri, fileName, content }
                         } catch (error) {
                             // Ignore errors opening the text file. This can happen when the file was deleted
                             console.error(error)

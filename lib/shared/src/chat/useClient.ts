@@ -19,7 +19,7 @@ import { RecipeID } from './recipes/recipe'
 import { Transcript } from './transcript'
 import { ChatMessage } from './transcript/messages'
 import { Typewriter } from './typewriter'
-import { reformatBotMessage } from './viewHelpers'
+import { reformatBotMessageForChat } from './viewHelpers'
 
 export type CodyClientConfig = Pick<
     ConfigurationWithAccessToken,
@@ -31,6 +31,7 @@ export interface CodyClientScope {
     includeInferredFile: boolean
     repositories: string[]
     editor: Editor
+    addEnhancedContext: boolean
 }
 
 export interface CodyClientScopePartial {
@@ -89,6 +90,7 @@ export const useClient = ({
         includeInferredFile: true,
         repositories: [],
         editor: new NoopEditor(),
+        addEnhancedContext: true,
     },
     onEvent,
 }: CodyClientProps): CodyClient => {
@@ -174,6 +176,7 @@ export const useClient = ({
                 ...scope,
                 includeInferredRepository: !scope.includeInferredRepository,
                 includeInferredFile: !scope.includeInferredRepository,
+                addEnhancedContext: !scope.includeInferredRepository,
             })),
         [setScopeState]
     )
@@ -239,6 +242,7 @@ export const useClient = ({
                 includeInferredFile: initialScope?.includeInferredFile ?? true,
                 repositories: initialScope?.repositories ?? [],
                 editor: initialScope?.editor ?? scope.editor,
+                addEnhancedContext: initialScope?.addEnhancedContext ?? true,
             }))
 
             onEvent?.('initializedNewChat')
@@ -291,6 +295,7 @@ export const useClient = ({
             const codebaseContext = new CodebaseContext(
                 config,
                 undefined,
+                () => config.serverEndpoint,
                 null,
                 null,
                 null,
@@ -306,7 +311,7 @@ export const useClient = ({
                 intentDetector,
                 codebaseContext,
                 responseMultiplexer: new BotResponseMultiplexer(),
-                firstInteraction: transcript.isEmpty,
+                addEnhancedContext: scope.addEnhancedContext,
             })
             if (!interaction) {
                 return Promise.resolve(null)
@@ -335,7 +340,7 @@ export const useClient = ({
                         }
                         rawText = _rawText
 
-                        const text = reformatBotMessage(rawText, responsePrefix)
+                        const text = reformatBotMessageForChat(rawText, responsePrefix)
                         transcript.addAssistantResponse(text)
                         setChatMessagesState(transcript.toChat())
                     },

@@ -1,11 +1,12 @@
 import { Configuration } from '../configuration'
+import { ActiveTextEditorSelectionRange } from '../editor'
 import { EmbeddingsSearch } from '../embeddings'
 import { GraphContextFetcher } from '../graph-context'
 import {
     ContextResult,
     FilenameContextFetcher,
     IndexedKeywordContextFetcher,
-    KeywordContextFetcher,
+    LocalEmbeddingsFetcher,
 } from '../local-context'
 import {
     isMarkdownFile,
@@ -14,6 +15,7 @@ import {
     populatePreciseCodeContextTemplate,
 } from '../prompt/templates'
 import { Message } from '../sourcegraph-api'
+import { isDotCom } from '../sourcegraph-api/environments'
 import { EmbeddingsSearchResult } from '../sourcegraph-api/graphql/client'
 import { UnifiedContextFetcher } from '../unified-context'
 import { isError } from '../utils'
@@ -28,12 +30,13 @@ export interface ContextSearchOptions {
 export class CodebaseContext {
     private embeddingResultsError = ''
     constructor(
-        private config: Pick<Configuration, 'useContext' | 'serverEndpoint' | 'experimentalLocalSymbols'>,
-        private readonly codebase: string | undefined,
-        private embeddings: EmbeddingsSearch | null,
-        private keywords: KeywordContextFetcher | null,
+        private config: Pick<Configuration, 'useContext' | 'experimentalLocalSymbols'>,
+        private codebase: string | undefined,
+        private getServerEndpoint: () => string,
+        public embeddings: EmbeddingsSearch | null,
         private filenames: FilenameContextFetcher | null,
         private graph: GraphContextFetcher | null,
+        public localEmbeddings: LocalEmbeddingsFetcher | null,
         public symf?: IndexedKeywordContextFetcher,
         private unifiedContextFetcher?: UnifiedContextFetcher | null,
         private rerank?: (query: string, results: ContextResult[]) => Promise<ContextResult[]>
@@ -45,19 +48,6 @@ export class CodebaseContext {
 
     public onConfigurationChange(newConfig: typeof this.config): void {
         this.config = newConfig
-    }
-
-    private mergeContextResults(keywordResults: ContextResult[], filenameResults: ContextResult[]): ContextResult[] {
-        // Just take the single most relevant filename suggestion for now. Otherwise, because our reranking relies solely
-        // on filename, the filename results would dominate the keyword results.
-        const merged = filenameResults.slice(-1).concat(keywordResults)
-
-        const uniques = new Map<string, ContextResult>()
-        for (const result of merged) {
-            uniques.set(result.fileName, result)
-        }
-
-        return Array.from(uniques.values())
     }
 
     /**
@@ -84,10 +74,11 @@ export class CodebaseContext {
                 return this.getLocalContextMessages(query, options)
             case 'none':
                 return []
-            default:
-                return this.embeddings
+            default: {
+                return this.localEmbeddings || this.embeddings
                     ? this.getEmbeddingsContextMessages(query, options)
                     : this.getLocalContextMessages(query, options)
+            }
         }
     }
 
@@ -110,13 +101,12 @@ export class CodebaseContext {
         if (this.embeddings && this.config.useContext !== 'keyword') {
             return {
                 results: await this.getEmbeddingSearchResults(query, options),
-                endpoint: this.config.serverEndpoint,
+                endpoint: this.getServerEndpoint(),
             }
         }
         return {
-            results:
-                (await this.keywords?.getSearchContext(query, options.numCodeResults + options.numTextResults)) || [],
-            endpoint: this.config.serverEndpoint,
+            results: [],
+            endpoint: this.getServerEndpoint(),
         }
     }
 
@@ -131,34 +121,41 @@ export class CodebaseContext {
 
         return groupResultsByFile(combinedResults)
             .reverse() // Reverse results so that they appear in ascending order of importance (least -> most).
-            .flatMap(groupedResults => this.makeContextMessageWithResponse(groupedResults))
-            .map(message => contextMessageWithSource(message, 'embeddings'))
+            .flatMap(groupedResults => CodebaseContext.makeContextMessageWithResponse(groupedResults))
+            .map(message => contextMessageWithSource(message, 'embeddings', this.codebase))
     }
 
     private async getEmbeddingSearchResults(
         query: string,
         options: ContextSearchOptions
     ): Promise<EmbeddingsSearchResult[]> {
-        if (!this.embeddings) {
-            return []
+        if (isDotCom(this.getServerEndpoint()) && this.localEmbeddings) {
+            // TODO(dpc): Check whether the local embeddings index exists for
+            // this repo before relying on it.
+            // TODO(dpc): Fetch code and text results.
+            return this.localEmbeddings.getContext(query, options.numCodeResults)
         }
-
-        const embeddingsSearchResults = await this.embeddings.search(
-            query,
-            options.numCodeResults,
-            options.numTextResults
-        )
-
-        if (isError(embeddingsSearchResults)) {
-            console.error('Error retrieving embeddings:', embeddingsSearchResults)
-            this.embeddingResultsError = `Error retrieving embeddings: ${embeddingsSearchResults}`
-            return []
+        if (this.embeddings) {
+            const embeddingsSearchResults = await this.embeddings.search(
+                query,
+                options.numCodeResults,
+                options.numTextResults
+            )
+            if (isError(embeddingsSearchResults)) {
+                console.error('Error retrieving embeddings:', embeddingsSearchResults)
+                this.embeddingResultsError = `Error retrieving embeddings: ${embeddingsSearchResults}`
+                return []
+            }
+            this.embeddingResultsError = ''
+            return embeddingsSearchResults.codeResults.concat(embeddingsSearchResults.textResults)
         }
-        this.embeddingResultsError = ''
-        return embeddingsSearchResults.codeResults.concat(embeddingsSearchResults.textResults)
+        return []
     }
 
-    private makeContextMessageWithResponse(groupedResults: { file: ContextFile; results: string[] }): ContextMessage[] {
+    public static makeContextMessageWithResponse(groupedResults: {
+        file: ContextFile
+        results: string[]
+    }): ContextMessage[] {
         const contextTemplateFn = isMarkdownFile(groupedResults.file.fileName)
             ? populateMarkdownContextTemplate
             : populateCodeContextTemplate
@@ -187,6 +184,7 @@ export class CodebaseContext {
             return []
         }
 
+        const source: ContextFileSource = 'unified'
         return results.flatMap(result => {
             if (result?.type === 'FileChunkContext') {
                 const { content, filePath, repoName, revision } = result
@@ -194,7 +192,7 @@ export class CodebaseContext {
                     ? populateMarkdownContextTemplate(content, filePath, repoName)
                     : populateCodeContextTemplate(content, filePath, repoName)
 
-                return getContextMessageWithResponse(messageText, { fileName: filePath, repoName, revision })
+                return getContextMessageWithResponse(messageText, { fileName: filePath, repoName, revision, source })
             }
 
             return []
@@ -203,13 +201,8 @@ export class CodebaseContext {
 
     private async getLocalContextMessages(query: string, options: ContextSearchOptions): Promise<ContextMessage[]> {
         try {
-            const keywordResultsPromise = this.getKeywordSearchResults(query, options)
-            const filenameResultsPromise = this.getFilenameSearchResults(query, options)
-
-            const [keywordResults, filenameResults] = await Promise.all([keywordResultsPromise, filenameResultsPromise])
-
-            const combinedResults = this.mergeContextResults(keywordResults, filenameResults)
-            const rerankedResults = await (this.rerank ? this.rerank(query, combinedResults) : combinedResults)
+            const filenameResults = await this.getFilenameSearchResults(query, options)
+            const rerankedResults = await (this.rerank ? this.rerank(query, filenameResults) : filenameResults)
             const messages = resultsToMessages(rerankedResults)
 
             this.embeddingResultsError = ''
@@ -220,14 +213,6 @@ export class CodebaseContext {
             this.embeddingResultsError = `Error retrieving local context: ${error}`
             return []
         }
-    }
-
-    private async getKeywordSearchResults(query: string, options: ContextSearchOptions): Promise<ContextResult[]> {
-        if (!this.keywords) {
-            return []
-        }
-        const results = await this.keywords.getContext(query, options.numCodeResults + options.numTextResults)
-        return results
     }
 
     private async getFilenameSearchResults(query: string, options: ContextSearchOptions): Promise<ContextResult[]> {
@@ -242,8 +227,6 @@ export class CodebaseContext {
         if (!this.config.experimentalLocalSymbols || !this.graph) {
             return []
         }
-        console.debug('Fetching graph context')
-
         const contextMessages: ContextMessage[] = []
         for (const preciseContext of await this.graph.getContext()) {
             const text = populatePreciseCodeContextTemplate(
@@ -263,7 +246,14 @@ function groupResultsByFile(results: EmbeddingsSearchResult[]): { file: ContextF
     const originalFileOrder: ContextFile[] = []
     for (const result of results) {
         if (!originalFileOrder.find((ogFile: ContextFile) => ogFile.fileName === result.fileName)) {
-            originalFileOrder.push({ fileName: result.fileName, repoName: result.repoName, revision: result.revision })
+            originalFileOrder.push({
+                fileName: result.fileName,
+                repoName: result.repoName,
+                revision: result.revision,
+                range: createContextFileRange(result),
+                source: 'embeddings',
+                type: 'file',
+            })
         }
     }
 
@@ -308,9 +298,27 @@ function resultsToMessages(results: ContextResult[]): ContextMessage[] {
     })
 }
 
-function contextMessageWithSource(message: ContextMessage, source: ContextFileSource): ContextMessage {
+function contextMessageWithSource(
+    message: ContextMessage,
+    source: ContextFileSource,
+    codebase?: string
+): ContextMessage {
     if (message.file) {
         message.file.source = source
+        message.file.repoName = codebase ?? message.file.repoName
     }
     return message
+}
+
+function createContextFileRange(result: EmbeddingsSearchResult): ActiveTextEditorSelectionRange {
+    return {
+        start: {
+            line: result.startLine,
+            character: 0,
+        },
+        end: {
+            line: result.endLine,
+            character: 0,
+        },
+    }
 }

@@ -3,15 +3,15 @@ import React, { useRef } from 'react'
 import { noop } from 'lodash'
 
 import { Chat as ChatUI, ChatUISubmitButtonProps, ChatUITextAreaProps } from '@sourcegraph/cody-ui/src/Chat'
-import { FileLinkProps } from '@sourcegraph/cody-ui/src/chat/ContextFiles'
+import { FileLinkProps } from '@sourcegraph/cody-ui/src/chat/components/EnhancedContext'
 import { SymbolLinkProps } from '@sourcegraph/cody-ui/src/chat/PreciseContext'
 import { CODY_TERMS_MARKDOWN } from '@sourcegraph/cody-ui/src/terms'
 import { SubmitSvg } from '@sourcegraph/cody-ui/src/utils/icons'
 
 import styles from './Chat.module.css'
 
-export const Chat: React.FunctionComponent<
-    Omit<
+interface ChatProps
+    extends Omit<
         React.ComponentPropsWithoutRef<typeof ChatUI>,
         | 'textAreaComponent'
         | 'submitButtonComponent'
@@ -19,8 +19,9 @@ export const Chat: React.FunctionComponent<
         | 'symbolLinkComponent'
         | 'messageBeingEdited'
         | 'setMessageBeingEdited'
-    >
-> = ({
+    > {}
+
+export const Chat: React.FunctionComponent<ChatProps> = ({
     messageInProgress,
     transcript,
     contextStatus,
@@ -29,6 +30,9 @@ export const Chat: React.FunctionComponent<
     inputHistory,
     setInputHistory,
     onSubmit,
+    userInfo,
+    isCodyEnabled,
+    ...rest
 }) => (
     <ChatUI
         messageBeingEdited={false}
@@ -52,7 +56,9 @@ export const Chat: React.FunctionComponent<
         transcriptActionClassName={styles.transcriptAction}
         inputRowClassName={styles.inputRow}
         chatInputClassName={styles.chatInput}
-        isCodyEnabled={true}
+        isCodyEnabled={isCodyEnabled}
+        userInfo={userInfo}
+        {...rest}
     />
 )
 
@@ -93,5 +99,5 @@ const SubmitButton: React.FunctionComponent<ChatUISubmitButtonProps> = ({ classN
     </button>
 )
 
-const FileLink: React.FunctionComponent<FileLinkProps> = ({ path }) => <>{path}</>
+const FileLink: React.FunctionComponent<FileLinkProps> = ({ path }) => <>{`@${path}`}</>
 const SymbolLink: React.FunctionComponent<SymbolLinkProps> = ({ symbol }) => <>{symbol}</>

@@ -7,8 +7,14 @@ import {
     CompletionResponse,
 } from '@sourcegraph/cody-shared/src/sourcegraph-api/completions/types'
 
+import { testFilePath } from '../../testutils/textDocument'
+import { SupportedLanguage } from '../../tree-sitter/grammars'
+import { updateParseTreeCache } from '../../tree-sitter/parse-tree-cache'
+import { getParser } from '../../tree-sitter/parser'
 import { CodeCompletionsClient } from '../client'
 import { ContextMixer } from '../context/context-mixer'
+import { DefaultContextStrategyFactory } from '../context/context-strategy'
+import { getCompletionIntent } from '../doc-context-getters'
 import { getCurrentDocContext } from '../get-current-doc-context'
 import {
     getInlineCompletions as _getInlineCompletions,
@@ -18,16 +24,13 @@ import {
 import { createProviderConfig, MULTI_LINE_STOP_SEQUENCES, SINGLE_LINE_STOP_SEQUENCES } from '../providers/anthropic'
 import { RequestManager } from '../request-manager'
 import { documentAndPosition } from '../test-helpers'
-import { SupportedLanguage } from '../tree-sitter/grammars'
-import { updateParseTreeCache } from '../tree-sitter/parse-tree-cache'
-import { getParser } from '../tree-sitter/parser'
 
 // The dedent package seems to replace `\t` with `\\t` so in order to insert a tab character, we
 // have to use interpolation. We abbreviate this to `T` because ${T} is exactly 4 characters,
 // mimicking the default indentation of four spaces
 export const T = '\t'
 
-const URI_FIXTURE = URI.parse('file:///test.ts')
+const URI_FIXTURE = URI.file(testFilePath('test.ts'))
 
 type Params = Partial<Omit<InlineCompletionsParams, 'document' | 'position' | 'docContext'>> & {
     languageId?: string
@@ -52,6 +55,7 @@ export function params(
         triggerKind = TriggerKind.Automatic,
         selectedCompletionInfo,
         takeSuggestWidgetSelectionIntoAccount,
+        isDotComUser = false,
         ...params
     }: Params = {}
 ): InlineCompletionsParams {
@@ -64,10 +68,7 @@ export function params(
                 : Promise.resolve(responses?.[requestCounter++] || { completion: '', stopReason: 'unknown' })
         },
     }
-    const providerConfig = createProviderConfig({
-        client,
-        model: null,
-    })
+    const providerConfig = createProviderConfig({ client })
 
     const { document, position } = documentAndPosition(code, languageId, URI_FIXTURE.toString())
 
@@ -81,6 +82,7 @@ export function params(
         position,
         maxPrefixLength: 1000,
         maxSuffixLength: 1000,
+        dynamicMultilineCompletions: false,
         context: takeSuggestWidgetSelectionIntoAccount
             ? {
                   triggerKind: 0,
@@ -101,7 +103,13 @@ export function params(
         selectedCompletionInfo,
         providerConfig,
         requestManager: new RequestManager(),
-        contextMixer: new ContextMixer('none', null as any),
+        contextMixer: new ContextMixer(new DefaultContextStrategyFactory('none')),
+        completionIntent: getCompletionIntent({
+            document,
+            position,
+            prefix: docContext.prefix,
+        }),
+        isDotComUser,
         ...params,
     }
 }

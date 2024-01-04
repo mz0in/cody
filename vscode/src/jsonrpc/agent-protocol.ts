@@ -1,10 +1,18 @@
 /* eslint-disable @typescript-eslint/consistent-type-definitions */
 
-import { RecipeID } from '@sourcegraph/cody-shared/src/chat/recipes/recipe'
-import { ChatMessage } from '@sourcegraph/cody-shared/src/chat/transcript/messages'
-import { event } from '@sourcegraph/cody-shared/src/sourcegraph-api/graphql/client'
+import type { RecipeID } from '@sourcegraph/cody-shared/src/chat/recipes/recipe'
+import type { ChatMessage } from '@sourcegraph/cody-shared/src/chat/transcript/messages'
+import type { event } from '@sourcegraph/cody-shared/src/sourcegraph-api/graphql/client'
+import type { BillingCategory, BillingProduct } from '@sourcegraph/cody-shared/src/telemetry-v2'
+import type {
+    KnownKeys,
+    KnownString,
+    TelemetryEventMarketingTrackingInput,
+    TelemetryEventParameters,
+} from '@sourcegraph/telemetry'
 
-import { CompletionEvent } from '../completions/logger'
+import type { ExtensionMessage, WebviewMessage } from '../chat/protocol'
+import type { CompletionBookkeepingEvent, CompletionItemID } from '../completions/logger'
 
 // This file documents the Cody Agent JSON-RPC protocol. Consult the JSON-RPC
 // specification to learn about how JSON-RPC works https://www.jsonrpc.org/specification
@@ -36,19 +44,62 @@ export type Requests = {
     // client <-- chat/updateMessageInProgress --- server
     'recipes/execute': [ExecuteRecipeParams, null]
 
+    // High-level wrapper around command/execute and  webview/create to start a
+    // new chat session.  Returns a UUID for the chat session.
+    'chat/new': [null, string]
+
+    // High-level wrapper around webview/receiveMessage and webview/postMessage
+    // to submit a chat message. The ID is the return value of chat/id, and the
+    // message is forwarded verbatim via webview/receiveMessage. This helper
+    // abstracts over the low-level webview notifications so that you can await
+    // on the request.  Subscribe to webview/postMessage to stream the reply
+    // while awaiting on this response.
+    'chat/submitMessage': [{ id: string; message: WebviewMessage }, ExtensionMessage]
+
+    // Low-level API to trigger a VS Code command with any argument list. Avoid
+    // using this API in favor of high-level wrappers like 'chat/new'.
+    'command/execute': [ExecuteCommandParams, any]
+
     'autocomplete/execute': [AutocompleteParams, AutocompleteResult]
 
     'graphql/currentUserId': [null, string]
+
+    'graphql/currentUserIsPro': [null, boolean]
+
+    'featureFlags/getFeatureFlag': [{ flagName: string }, boolean | null]
+
+    /**
+     * @deprecated use 'telemetry/recordEvent' instead.
+     */
     'graphql/logEvent': [event, null]
+    /**
+     * Record telemetry events.
+     */
+    'telemetry/recordEvent': [TelemetryEvent, null]
 
     'graphql/getRepoIdIfEmbeddingExists': [{ repoName: string }, string | null]
     'graphql/getRepoId': [{ repoName: string }, string | null]
 
     'git/codebaseName': [{ url: string }, string | null]
 
+    // High-level API to allow the agent to clean up resources related to a
+    // webview ID (from chat/new).
+    'webview/didDispose': [{ id: string }, null]
+
+    // Low-level API to send a raw WebviewMessage from a specific webview (chat
+    // session).  Refrain from using this API in favor of high-level APIs like
+    // `chat/submitMessage`.
+    'webview/receiveMessage': [{ id: string; message: WebviewMessage }, null]
+
     // ================
     // Server -> Client
     // ================
+
+    // Low-level API to handle requests from the VS Code extension to create a
+    // webview.  This endpoint should not be needed as long as you use
+    // high-level APIs like chat/new instead. This API only exists to faithfully
+    // expose the VS Code webview API.
+    'webview/create': [{ id: string; data: any }, null]
 }
 
 // The JSON-RPC notifications of the Cody Agent protocol. Notifications are
@@ -88,7 +139,12 @@ export type Notifications = {
     // The user no longer wishes to consider the last autocomplete candidate
     // and the current autocomplete id should not be reused.
     'autocomplete/clearLastCandidate': [null]
-
+    // The completion was presented to the user, and will be logged for telemetry
+    // purposes.
+    'autocomplete/completionSuggested': [CompletionItemParams]
+    // The completion was accepted by the user, and will be logged for telemetry
+    // purposes.
+    'autocomplete/completionAccepted': [CompletionItemParams]
     // Resets the chat transcript and clears any in-progress interactions.
     // This notification should be sent when the user starts a new conversation.
     // The chat transcript grows indefinitely if this notification is never sent.
@@ -103,14 +159,24 @@ export type Notifications = {
     'chat/updateMessageInProgress': [ChatMessage | null]
 
     'debug/message': [DebugMessage]
+
+    // Low-level webview notification for the given chat session ID (created via
+    // chat/new). Subscribe to these messages to get access to streaming updates
+    // on the chat reply.
+    'webview/postMessage': [{ id: string; message: ExtensionMessage }]
 }
 
 export interface CancelParams {
     id: string | number
 }
 
+export interface CompletionItemParams {
+    completionID: CompletionItemID
+}
+
 export interface AutocompleteParams {
-    filePath: string
+    uri: string
+    filePath?: string
     position: Position
     // Defaults to 'Automatic' for autocompletions which were not explicitly
     // triggered.
@@ -124,10 +190,13 @@ export interface SelectedCompletionInfo {
 }
 export interface AutocompleteResult {
     items: AutocompleteItem[]
-    completionEvent?: CompletionEvent
+
+    /** completionEvent is not deprecated because it's used by non-editor clients like evaluate-autocomplete that need access to book-keeping data to evaluate results. */
+    completionEvent?: CompletionBookkeepingEvent
 }
 
 export interface AutocompleteItem {
+    id: CompletionItemID
     insertText: string
     range: Range
 }
@@ -142,6 +211,12 @@ export interface ClientInfo {
 
     extensionConfiguration?: ExtensionConfiguration
     capabilities?: ClientCapabilities
+
+    /**
+     * Optional tracking attributes to inject into telemetry events recorded
+     * by the agent.
+     */
+    marketingTracking?: TelemetryEventMarketingTrackingInput
 }
 
 export interface ClientCapabilities {
@@ -165,21 +240,74 @@ export interface ExtensionConfiguration {
     proxy?: string | null
     accessToken: string
     customHeaders: Record<string, string>
+
+    /**
+     * anonymousUserID is an important component of telemetry events that get
+     * recorded. It is currently optional for backwards compatibility, but
+     * it is strongly recommended to set this when connecting to Agent.
+     */
+    anonymousUserID?: string
+
     autocompleteAdvancedProvider?: string
-    autocompleteAdvancedServerEndpoint?: string | null
     autocompleteAdvancedModel?: string | null
-    autocompleteAdvancedAccessToken?: string | null
     debug?: boolean
     verboseDebug?: boolean
     codebase?: string
 
-    /** When passed, the Agent will handle recording events.
-     * If not passed, client must send `graphql/logEvent` requests manually. **/
+    /**
+     * When passed, the Agent will handle recording events.
+     * If not passed, client must send `graphql/logEvent` requests manually.
+     * @deprecated This is only used for the legacy logEvent - use `telemetry` instead.
+     */
     eventProperties?: EventProperties
+
+    customConfiguration?: Record<string, any>
 }
 
+/**
+ * TelemetryEvent is a JSON RPC format of the arguments to a typical
+ * TelemetryEventRecorder implementation from '@sourcegraph/telemetry'.
+ * This type is intended for use in the Agent RPC handler only - clients sending
+ * events to the Agent should use 'newTelemetryEvent()' to create event objects,
+ * which uses the same type constraints as '(TelemetryEventRecorder).recordEvent()'.
+ * @param feature must be camelCase and '.'-delimited, e.g. 'myFeature.subFeature'.
+ * Features should NOT include the client platform, e.g. 'vscode' - information
+ * about the client is automatically attached to all events. Note that Cody
+ * events MUST have provide feature 'cody' or have a feature prefixed with
+ * 'cody.' to be considered Cody events.
+ * @param action must be camelCase and simple, e.g. 'submit', 'failed', or
+ * 'success', in the context of feature.
+ * @param parameters should be as described in {@link TelemetryEventParameters}.
+ */
+export interface TelemetryEvent {
+    feature: string
+    action: string
+    parameters?: TelemetryEventParameters<{ [key: string]: number }, BillingProduct, BillingCategory>
+}
+
+/**
+ * newTelemetryEvent is a constructor for TelemetryEvent that shares the same
+ * type constraints as '(TelemetryEventRecorder).recordEvent()'.
+ */
+export function newTelemetryEvent<Feature extends string, Action extends string, MetadataKey extends string>(
+    feature: KnownString<Feature>,
+    action: KnownString<Action>,
+    parameters?: TelemetryEventParameters<
+        KnownKeys<MetadataKey, { [key in MetadataKey]: number }>,
+        BillingProduct,
+        BillingCategory
+    >
+): TelemetryEvent {
+    return { feature, action, parameters }
+}
+
+/**
+ * @deprecated EventProperties are no longer referenced.
+ */
 export interface EventProperties {
-    /** Anonymous user ID */
+    /**
+     * @deprecated Use (ExtensionConfiguration).anonymousUserID instead
+     */
     anonymousUserID: string
 
     /** Event prefix, like 'CodyNeovimPlugin' */
@@ -205,7 +333,10 @@ export interface Range {
 }
 
 export interface TextDocument {
-    filePath: string
+    // Use TextDocumentWithUri.fromDocument(TextDocument) if you want to parse this `uri` property.
+    uri: string
+    /** @deprecated use `uri` instead. This property only exists for backwards compatibility during the migration period. */
+    filePath?: string
     content?: string
     selection?: Range
 }
@@ -219,6 +350,11 @@ export interface ExecuteRecipeParams {
     id: RecipeID
     humanChatInput: string
     data?: any
+}
+
+export interface ExecuteCommandParams {
+    command: string
+    arguments?: any[]
 }
 
 export interface DebugMessage {

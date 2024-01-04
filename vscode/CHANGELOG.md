@@ -1,10 +1,340 @@
 # Changelog
 
-All notable changes to Sourcegraph Cody will be documented in this file.
-
-Starting from `0.2.0`, Cody is using `major.EVEN_NUMBER.patch` for release versions and `major.ODD_NUMBER.patch` for pre-release versions.
+This is a log of all notable changes to Cody for VS Code. [Unreleased] changes are included in the nightly pre-release builds.
 
 ## [Unreleased]
+
+### Added
+
+- [Internal] New `cody.internal.unstable` setting for enabling unstable experimental features for internal use only. Included `.cody/ignore` for internal testing. [pulls/1382](https://github.com/sourcegraph/cody/pull/1382)
+
+### Fixed
+
+- @-mentioning files on Windows no longer sometimes renders visible markdown for the links in the chat [issues/2388](https://github.com/sourcegraph/cody/issues/2388)/[pull/2398](https://github.com/sourcegraph/cody/pull/2398)
+- Mentioning multiple files in chat no longer only includes the first file [issues/2402](https://github.com/sourcegraph/cody/issues/2402)/[pull/2405](https://github.com/sourcegraph/cody/pull/2405)
+- Enhanced context is no longer added to commands and custom commands that do not require codebase context. [pulls/2537](https://github.com/sourcegraph/cody/pull/2537)
+
+### Changed
+
+- The `inline` mode for Custom Commands has been removed. [pull/2551](https://github.com/sourcegraph/cody/pull/2551)
+
+## [1.0.4]
+
+### Added
+
+### Fixed
+
+- Fixed config parsing to ensure we read the right remote server endpoint everywhere. [pulls/2456](https://github.com/sourcegraph/cody/pull/2456)
+
+### Changed
+
+- Autocomplete: Accepting a full line completion will not immediately start another completion request on the same line. [pulls/2446](https://github.com/sourcegraph/cody/pull/2446)
+- Changes to the model in the new chat experience on the Cody Pro plan will now be remembered. [pull/2438](https://github.com/sourcegraph/cody/pull/2438)
+
+## [1.0.3]
+
+### Added
+
+### Fixed
+
+### Changed
+
+- Logging improvements for accuracy. [pulls/2444](https://github.com/sourcegraph/cody/pull/2444)
+
+## [1.0.2]
+
+### Added
+
+### Fixed
+
+- Chat: Honor the cody.codebase setting for manually setting the remote codebase context. [pulls/2415](https://github.com/sourcegraph/cody/pull/2415)
+- Fixes the Code Lenses feature. [issues/2428](https://github.com/sourcegraph/cody/issues/2428)
+
+### Changed
+
+- The chat history is now associated to the currently logged in account. [issues/2261](https://github.com/sourcegraph/cody/issues/2261)
+
+## [1.0.1]
+
+### Added
+
+### Fixed
+
+- Fixes an issue where GPT 3.5 requests were sometimes left hanging. [pull/2386](https://github.com/sourcegraph/cody/pull/2386)
+- Chat: Use the proper token limits for enterprise users. [pulls/2395](https://github.com/sourcegraph/cody/pull/2395)
+
+### Changed
+
+- Hide the LLM dropdown in the new Chat UX for enterprise instances where there is no choice to switch models. [pulls/2393](https://github.com/sourcegraph/cody/pull/2393)
+
+## [1.0.0]
+
+### Added
+
+- Adds support for Mixtral by Mistral in the LLM dropdown list. [issues/2307](https://github.com/sourcegraph/cody/issues/2307)
+
+### Fixed
+
+- Context: The "Continue Indexing" button works on Windows. [issues/2328](https://github.com/sourcegraph/cody/issues/2328)
+- Context: The "Embeddings Incomplete" status bar item shows an accurate percent completion. Previously we showed the percent *in*complete, but labeled it percent complete. We no longer display a spurious "Cody Embeddings Index Complete" toast if indexing fails a second time. [pull/2368](https://github.com/sourcegraph/cody/pull/2368)
+
+### Changed
+
+- Updates the code smell icon so it does not stand out in some VS Code themes.
+
+## [0.18.6]
+
+### Added
+
+- Context: Incomplete embeddings indexing status can seen in the status bar. On macOS and Linux, indexing can be resumed by clicking there. However Windows users will still see an OS error 5 (access denied) when retrying indexing. [pull/2265](https://github.com/sourcegraph/cody/pull/2265)
+- Autocomplete: Add the `cody.autocomplete.formatOnAccept` user setting, which allows users to enable or disable the automatic formatting of autocomplete suggestions upon acceptance. [pull/2327](https://github.com/sourcegraph/cody/pull/2327)
+
+### Fixed
+
+- Autocomplete: Don't show loading indicator when a user is rate limited. [pull/2314](https://github.com/sourcegraph/cody/pull/2314)
+- Fixes an issue where the wrong rate limit count was shown. [pull/2312](https://github.com/sourcegraph/cody/pull/2312)
+- Chat: Fix icon rendering on the null state. [pull/2336](https://github.com/sourcegraph/cody/pull/2336)
+- Chat: The current file, when included as context, is now shown as a relative path and is a clickable link. [pull/2344](https://github.com/sourcegraph/cody/pull/2344)
+- Chat: Reopened chat panels now use the correct chat title. [pull/2345](https://github.com/sourcegraph/cody/pull/2345)
+- Chat: Fixed an issue where the command settings menu would not open when clicked. [pull/2346](https://github.com/sourcegraph/cody/pull/2346)
+- Fixed an issue where `/reset` command throws an error in the chat panel. [pull/2313](https://github.com/sourcegraph/cody/pull/2313)
+
+### Changed
+
+- Update Getting Started Guide. [pull/2279](https://github.com/sourcegraph/cody/pull/2279)
+- Commands: Edit commands are no longer shown in the chat slash command menu. [pull/2339](https://github.com/sourcegraph/cody/pull/2339)
+- Change Natural Language Search to Beta [pull/2351](https://github.com/sourcegraph/cody/pull/2351)
+
+## [0.18.5]
+
+### Added
+
+### Fixed
+
+- Chat: Fixed support for the `cody.chat.preInstruction` setting. [pull/2255](https://github.com/sourcegraph/cody/pull/2255)
+- Fixes an issue where pasting into the document was not properly tracked. [pull/2293](https://github.com/sourcegraph/cody/pull/2293)
+- Edit: Fixed an issue where the documentation command would incorrectly position inserted edits. [pull/2290](https://github.com/sourcegraph/cody/pull/2290)
+- Edit: Fixed an issue where the documentation command would scroll to code that is already visible [pull/2296](https://github.com/sourcegraph/cody/pull/2296)
+
+### Changed
+
+- Settings: Relabel "symf Context" as "Search Context". [pull/2285](https://github.com/sourcegraph/cody/pull/2285)
+- Chat: Removed 'Chat Suggestions' setting. [pull/2284](https://github.com/sourcegraph/cody/pull/2284)
+- Edit: Completed edits are no longer scrolled back into view in the active file. [pull/2297](https://github.com/sourcegraph/cody/pull/2297)
+- Chat: Update welcome message. [pull/2298](https://github.com/sourcegraph/cody/pull/2298)
+- Edit: Decorations are no longer shown once an edit has been applied. [pull/2304](https://github.com/sourcegraph/cody/pull/2304)
+
+## [0.18.4]
+
+### Added
+
+### Fixed
+
+- Fixes an issue where the sidebar would not properly load when not signed in. [pull/2267](https://github.com/sourcegraph/cody/pull/2267)
+- Fixes an issue where telemetry events were not properly logged with the new chat experience. [pull/2291](https://github.com/sourcegraph/cody/pull/2291)
+
+### Changed
+
+## [0.18.3]
+
+### Added
+
+- Autocomplete: Adds a new experimental option to improve the latency when showing the next line after accepting a completion (hot streak mode). [pull/2118](https://github.com/sourcegraph/cody/pull/2118)
+- Chat: Add a settings button in the Chat panel to open extension settings. [pull/2117](https://github.com/sourcegraph/cody/pull/2117)
+
+### Fixed
+
+- Fix pre-release version numbers not being correctly detected. [pull/2240](https://github.com/sourcegraph/cody/pull/2240)
+- Embeddings appear in the enhanced context selector when the user is already signed in and loads/reloads VSCode. [pull/2247](https://github.com/sourcegraph/cody/pull/2247)
+- Embeddings status in the enhanced context selector has accurate messages when working in workspaces that aren't git repositories, or in git repositories which don't have remotes. [pull/2235](https://github.com/sourcegraph/cody/pull/2235)
+
+### Changed
+
+- Replace "Sign Out" with an account dialog. [pull/2233](https://github.com/sourcegraph/cody/pull/2233)
+- Chat: Update chat icon and transcript gradient. [pull/2254](https://github.com/sourcegraph/cody/pull/2254)
+
+## [0.18.2]
+
+### Added
+
+### Fixed
+
+- Chat: You can @-mention files starting with a dot. [pull/2209](https://github.com/sourcegraph/cody/pull/2209)
+- Chat: Typing a complete filename when @-mentioning files and then pressing `<tab>` will no longer duplicate the filename [pull/2218](https://github.com/sourcegraph/cody/pull/2218)
+- Autocomplete: Fixes an issue where changing user accounts caused some configuration issues. [pull/2182](https://github.com/sourcegraph/cody/pull/2182)
+- Fixes an issue where focusing the VS Code extension window caused unexpected errors when connected to an Enterprise instance. [pull/2182](https://github.com/sourcegraph/cody/pull/2182)
+- Embeddings: Send embeddings/initialize to the local embeddings controller. [pull/2183](https://github.com/sourcegraph/cody/pull/2183)
+- Chat: Do not parse Windows file paths as URIs. [pull/2197](https://github.com/sourcegraph/cody/pull/2197)
+- Search: Fix symf index dir on Windows. [pull/2207](https://github.com/sourcegraph/cody/pull/2207)
+- Chat: You can @-mention files on Windows without generating an error. [pull/2197](https://github.com/sourcegraph/cody/pull/2197)
+- Chat: You can @-mention files on Windows using backslashes and displayed filenames will use backslashes [pull/2215](https://github.com/sourcegraph/cody/pull/2215)
+- Sidebar: Fix "Release Notes" label & link for pre-releases in sidebar. [pull/2210](https://github.com/sourcegraph/cody/pull/2210)
+- Search: Send sigkill to symf when extension exits. [pull/2225](https://github.com/sourcegraph/cody/pull/2225)
+- Search: Support cancelling index. [pull/2202](https://github.com/sourcegraph/cody/pull/2202)
+- Chat Fix cursor blink issue and ensure proper chat initialization synchronization. [pull/2193](https://github.com/sourcegraph/cody/pull/2193)
+- plg: display errors when autocomplete rate limits trigger [pull/2193](https://github.com/sourcegraph/cody/pull/2135)
+- Mark Upgrade/Usage links as dot-com only [pull/2219](https://github.com/sourcegraph/cody/pull/2219)
+
+### Changed
+
+- Search: Only show search instructions on hover or focus [pull/2212](https://github.com/sourcegraph/cody/pull/2212)
+
+## [0.18.1]
+
+### Added
+
+### Fixed
+
+- Chat: Always include selection in Enhanced Context. [pull/2144](https://github.com/sourcegraph/cody/pull/2144)
+- Chat: Fix abort. [pull/2159](https://github.com/sourcegraph/cody/pull/2159)
+- Autocomplete: Fix rate limits messages for short time spans. [pull/2152](https://github.com/sourcegraph/cody/pull/2152)
+
+### Changed
+
+- Chat: Improve slash command heading padding. [pull/2173](https://github.com/sourcegraph/cody/pull/2173)
+
+## [0.18.0]
+
+### Added
+
+- Edit: "Ask Cody to Generate" or the "Edit" command now stream incoming code directly to the document when only inserting new code. [pull/1883](https://github.com/sourcegraph/cody/pull/1883)
+- Chat: New chat preview models `claude-2.1` is now avaliable for sourcegraph.com users. [pull/1860](https://github.com/sourcegraph/cody/pull/1860)
+- Edit: Added context-aware code actions for "Generate", "Edit" and "Document" commands. [pull/1724](https://github.com/sourcegraph/cody/pull/1724)
+- Chat: @'ing files now uses a case insensitive fuzzy search. [pull/1889](https://github.com/sourcegraph/cody/pull/1889)
+- Edit: Added a faster, more optimized response for the "document" command. [pull/1900](https://github.com/sourcegraph/cody/pull/1900)
+- Chat: Restore last opened chat panel on reload. [pull/1918](https://github.com/sourcegraph/cody/pull/1918)
+
+### Fixed
+
+- Chat: Display OS specific keybinding in chat welcome message. [pull/2051](https://github.com/sourcegraph/cody/pull/2051)
+- Embeddings indexes can be generated and stored locally in repositories with a default fetch URL that is not already indexed by sourcegraph.com through the Enhanced Context selector. [pull/2069](https://github.com/sourcegraph/cody/pull/2069)
+- Chat: Support chat input history on "up" and "down" arrow keys again. [pull/2059](https://github.com/sourcegraph/cody/pull/2059)
+- Chat: Decreased debounce time for creating chat panels to improve responsiveness. [pull/2115](https://github.com/sourcegraph/cody/pull/2115)
+- Chat: Fix infinite loop when searching for symbols. [pull/2114](https://github.com/sourcegraph/cody/pull/2114)
+- Chat: Speed up chat panel debounce w/ trigger on leading edge too. [pull/2126](https://github.com/sourcegraph/cody/pull/2126)
+- Chat: Fix message input overlapping with enhanced context button. [pull/2141](https://github.com/sourcegraph/cody/pull/2141)
+- Support chat input history on "up" and "down" arrow keys again. [pull/2059](https://github.com/sourcegraph/cody/pull/2059)
+- Edit: Fixed an issue where Cody would regularly include unrelated XML tags in the generated output. [pull/1789](https://github.com/sourcegraph/cody/pull/1789)
+- Chat: Fixed an issue that caused Cody to be unable to locate active editors when running commands from the new chat panel. [pull/1793](https://github.com/sourcegraph/cody/pull/1793)
+- Chat: Replaced uses of deprecated getWorkspaceRootPath that caused Cody to be unable to determine the current workspace in the chat panel. [pull/1793](https://github.com/sourcegraph/cody/pull/1793)
+- Chat: Input history is now preserved between chat sessions. [pull/1826](https://github.com/sourcegraph/cody/pull/1826)
+- Chat: Fixed chat command selection behavior in chat input box. [pull/1828](https://github.com/sourcegraph/cody/pull/1828)
+- Chat: Add delays before sending webview ready events to prevent premature sending. This fixes issue where chat panel fails to load when multiple chat panels are opened simultaneously. [pull/1836](https://github.com/sourcegraph/cody/pull/1836)
+- Autocomplete: Fixes a bug that caused autocomplete to be triggered at the end of a block or function invocation. [pull/1864](https://github.com/sourcegraph/cody/pull/1864)
+- Edit: Incoming edits that are afixed to the selected code and now handled properly (e.g. docstrings). [pull/1724](https://github.com/sourcegraph/cody/pull/1724)
+- Chat: Allowed backspace and delete keys to remove characters in chat messages input box.
+- Edit: Retrying an edit will now correctly use the original intended range. [pull/1926](https://github.com/sourcegraph/cody/pull/1926)
+- Chat: Allowed backspace and delete keys to remove characters in chat messages input box. [pull/1906](https://github.com/sourcegraph/cody/pull/1906)
+- Chat: The commands display box in the chat input box now uses the same styles as the @ command results box. [pull/1962](https://github.com/sourcegraph/cody/pull/1962)
+- Chat: Sort commands and prompts alphabetically in commands menu and chat. [pull/1998](https://github.com/sourcegraph/cody/pull/1998)
+- Chat: Fix chat command selection to only filter on '/' prefix. [pull/1980](https://github.com/sourcegraph/cody/pull/1980)
+- Chat: Improve @-file completion to better preserve input value. [pull/1980](https://github.com/sourcegraph/cody/pull/1980)
+- Edit: Fixed "Ask Cody: Edit Code" no longer showing in the command palette. [pull/2004](https://github.com/sourcegraph/cody/pull/2004)
+- Edit: Fixed an issue where Cody could incorrectly produce edits when repositioning code or moving your cursor onto new lines. [pull/2005](https://github.com/sourcegraph/cody/pull/2005)
+
+### Changed
+
+- Chat: Uses the new Chat UI by default. [pull/2079](https://github.com/sourcegraph/cody/pull/2079)
+- Inline Chat is now deprecated and removed. [pull/2079](https://github.com/sourcegraph/cody/pull/2079)
+- Fixup Tree View is now deprecated and removed. [pull/2079](https://github.com/sourcegraph/cody/pull/2079)
+- Enhanced Context used to turn off automatically after the first chat. Now it stays enabled until you disable it. [pull/2069](https://github.com/sourcegraph/cody/pull/2069)
+- Chat: Reuse existing New Chat panel to prevent having multiple new chats open at once. [pull/2087](https://github.com/sourcegraph/cody/pull/2087)
+- Chat: Close the Enhanced Context popover on chat input focus. [pull/2091](https://github.com/sourcegraph/cody/pull/2091)
+- Chat: Show onboarding glowy dot guide until first time opening Enhanced Context. [pull/2097](https://github.com/sourcegraph/cody/pull/2097)
+- In 0.12, we simplified the sign-in process and removed the option to sign into
+  Cody App from VScode. If you were still signed in to Cody App, we invite you to
+  sign in to Sourcegraph.com directly. The extension will do this automatically if
+  possible but you may need to sign in again. If you have set up embeddings in
+  Cody App, VScode will now search your local embeddings automatically: You no
+  longer need to have the Cody App open. Note, the sidebar chat indicator may
+  say embeddings were not found while we work on improving chat.
+  [pull/2099](https://github.com/sourcegraph/cody/pull/2099)
+- Commands: Expose commands in the VS Code command palette and clean up the context menu. [pull/1209](https://github.com/sourcegraph/cody/pull/2109)
+- Search: Style and UX improvements to the search panel. [pull/2138](https://github.com/sourcegraph/cody/pull/2138)
+- Chat: Reduce size of chats list blank copy. [pull/2137](https://github.com/sourcegraph/cody/pull/2137)
+- Chat: Update message input placeholder to mention slash commands. [pull/2142](https://github.com/sourcegraph/cody/pull/2142)
+- Inline Chat will soon be deprecated in favor of the improved chat and command experience. It is now disabled by default and does not work when the new chat panel is enabled. [pull/1797](https://github.com/sourcegraph/cody/pull/1797)
+- Chat: Updated the design and location for the `chat submit` button and `stop generating` button. [pull/1782](https://github.com/sourcegraph/cody/pull/1782)
+- Commands: `Command Code Lenses` has been moved out of experimental feature and is now available to general. [pull/0000](https://github.com/sourcegraph/cody/pull/0000)
+- Commands: `Custom Commands` has been moved out of experimental and is now at Beta. [pull/0000](https://github.com/sourcegraph/cody/pull/0000)
+- Commands: The Custom Commands Menu now closes on click outside of the menu. [pull/1854](https://github.com/sourcegraph/cody/pull/1854)
+- Autocomplete: Remove the frequency of unhelpful autocompletions. [pull/1862](https://github.com/sourcegraph/cody/pull/1862)
+- Chat: The default chat model `claude-2` has been replaced with the pinned version `claude-2.0`. [pull/1860](https://github.com/sourcegraph/cody/pull/1860)
+- Edit: Improved the response consistency for edits. Incoming code should now better match the surrounding code and contain less formatting errors [pull/1892](https://github.com/sourcegraph/cody/pull/1892)
+- Command: Editor title icon will only show up in non-readonly file editor views. [pull/1909](https://github.com/sourcegraph/cody/pull/1909)
+- Chat: Include text in dotCom chat events. [pull/1910](https://github.com/sourcegraph/cody/pull/1910)
+- Chat: Replaced vscode links with custom "cody.chat.open.file" protocol when displaying file names in chat. [pull/1919](https://github.com/sourcegraph/cody/pull/1919)
+- Chat: Change "Restart Chat Session" icon and add a confirmation. [pull/2002](https://github.com/sourcegraph/cody/pull/2002)
+- Chat; Improve enhanced context popover and button styles. [pull/2075](https://github.com/sourcegraph/cody/pull/2075)
+
+## [0.16.3]
+
+### Added
+
+### Fixed
+
+### Changed
+
+- Reverting back to v0.16.1 due to critical issue found in v0.16.2.
+
+## [0.16.2]
+
+### Added
+
+- Chat: New chat preview models `claude-2.1` is now avaliable for sourcegraph.com users. [pull/1860](https://github.com/sourcegraph/cody/pull/1860)
+- Edit: Added context-aware code actions for "Generate", "Edit" and "Document" commands. [pull/1724](https://github.com/sourcegraph/cody/pull/1724)
+- Chat: @'ing files now uses a case insensitive fuzzy search. [pull/1889](https://github.com/sourcegraph/cody/pull/1889)
+- Edit: Added a faster, more optimized response for the "document" command. [pull/1900](https://github.com/sourcegraph/cody/pull/1900)
+- Chat: Restore last opened chat panel on reload. [pull/1918](https://github.com/sourcegraph/cody/pull/1918)
+- Chat: Edit button to rename the chat history. [pull/1818](https://github.com/sourcegraph/cody/pull/1818)
+
+### Fixed
+
+- Edit: Fixed an issue where Cody would regularly include unrelated XML tags in the generated output. [pull/1789](https://github.com/sourcegraph/cody/pull/1789)
+- Chat: Fixed an issue that caused Cody to be unable to locate active editors when running commands from the new chat panel. [pull/1793](https://github.com/sourcegraph/cody/pull/1793)
+- Chat: Replaced uses of deprecated getWorkspaceRootPath that caused Cody to be unable to determine the current workspace in the chat panel. [pull/1793](https://github.com/sourcegraph/cody/pull/1793)
+- Chat: Input history is now preserved between chat sessions. [pull/1826](https://github.com/sourcegraph/cody/pull/1826)
+- Chat: Fixed chat command selection behavior in chat input box. [pull/1828](https://github.com/sourcegraph/cody/pull/1828)
+- Chat: Add delays before sending webview ready events to prevent premature sending. This fixes issue where chat panel fails to load when multiple chat panels are opened simultaneously. [pull/1836](https://github.com/sourcegraph/cody/pull/1836)
+- Autocomplete: Fixes a bug that caused autocomplete to be triggered at the end of a block or function invocation. [pull/1864](https://github.com/sourcegraph/cody/pull/1864)
+- Edit: Incoming edits that are afixed to the selected code and now handled properly (e.g. docstrings). [pull/1724](https://github.com/sourcegraph/cody/pull/1724)
+- Chat: Allowed backspace and delete keys to remove characters in chat messages input box.
+- Edit: Retrying an edit will now correctly use the original intended range. [pull/1926](https://github.com/sourcegraph/cody/pull/1926)
+- Chat: Allowed backspace and delete keys to remove characters in chat messages input box. [pull/1906](https://github.com/sourcegraph/cody/pull/1906)
+- Chat: The commands display box in the chat input box now uses the same styles as the @ command results box. [pull/1962](https://github.com/sourcegraph/cody/pull/1962)
+- Chat: Sort commands and prompts alphabetically in commands menu and chat. [pull/1998](https://github.com/sourcegraph/cody/pull/1998)
+- Chat: Fix chat command selection to only filter on '/' prefix. [pull/1980](https://github.com/sourcegraph/cody/pull/1980)
+- Chat: Improve @-file completion to better preserve input value. [pull/1980](https://github.com/sourcegraph/cody/pull/1980)
+- Edit: Fixed "Ask Cody: Edit Code" no longer showing in the command palette. [pull/2004](https://github.com/sourcegraph/cody/pull/2004)
+- Edit: Fixed an issue where Cody could incorrectly produce edits when repositioning code or moving your cursor onto new lines. [pull/2005](https://github.com/sourcegraph/cody/pull/2005)
+
+### Changed
+
+- Inline Chat will soon be deprecated in favor of the improved chat and command experience. It is now disabled by default and does not work when the new chat panel is enabled. [pull/1797](https://github.com/sourcegraph/cody/pull/1797)
+- Chat: Updated the design and location for the `chat submit` button and `stop generating` button. [pull/1782](https://github.com/sourcegraph/cody/pull/1782)
+- Commands: `Command Code Lenses` has been moved out of experimental feature and is now available to general. [pull/0000](https://github.com/sourcegraph/cody/pull/0000)
+- Commands: `Custom Commands` has been moved out of experimental and is now at Beta. [pull/0000](https://github.com/sourcegraph/cody/pull/0000)
+- Commands: The Custom Commands Menu now closes on click outside of the menu. [pull/1854](https://github.com/sourcegraph/cody/pull/1854)
+- Autocomplete: Remove the frequency of unhelpful autocompletions. [pull/1862](https://github.com/sourcegraph/cody/pull/1862)
+- Chat: The default chat model `claude-2` has been replaced with the pinned version `claude-2.0`. [pull/1860](https://github.com/sourcegraph/cody/pull/1860)
+- Edit: Improved the response consistency for edits. Incoming code should now better match the surrounding code and contain less formatting errors [pull/1892](https://github.com/sourcegraph/cody/pull/1892)
+- Command: Editor title icon will only show up in non-readonly file editor views. [pull/1909](https://github.com/sourcegraph/cody/pull/1909)
+- Chat: Include text in dotCom chat events. [pull/1910](https://github.com/sourcegraph/cody/pull/1910)
+- Chat: Replaced vscode links with custom "cody.chat.open.file" protocol when displaying file names in chat. [pull/1919](https://github.com/sourcegraph/cody/pull/1919)
+- Chat: Change "Restart Chat Session" icon and add a confirmation. [pull/2002](https://github.com/sourcegraph/cody/pull/2002)
+- Chat; Improve enhanced context popover and button styles. [pull/2075](https://github.com/sourcegraph/cody/pull/2075)
+
+## [0.16.1]
+
+### Added
+
+### Fixed
+
+### Changed
+
+- Move decision about which autocomplete deployment to use for StarCoder to the server. [pull/1845](https://github.com/sourcegraph/cody/pull/1845)
+
+## [0.16.0]
 
 ### Added
 
@@ -12,6 +342,10 @@ Starting from `0.2.0`, Cody is using `major.EVEN_NUMBER.patch` for release versi
 - Chat: New button in editor title for restarting chat session in current chat panel (non-sidebar chat view). [pull/1687](https://github.com/sourcegraph/cody/pull/1687)
 - Chat: New `@` command that allows you to attach files via the chat input box. [pull/1631](https://github.com/sourcegraph/cody/pull/1631)
 - Edit: Added a specific, faster, response flow for fixes when triggered directly from code actions. [pull/1639](https://github.com/sourcegraph/cody/pull/1639)
+- Edit: Improved context fetching for quick fixes to better include code related to the problem. [pull/1723](https://github.com/sourcegraph/cody/pull/1723)
+- Chat: Added option to configure whether to add enhanced context from codebase for chat question in the new chat panel. [pull/1738](https://github.com/sourcegraph/cody/pull/1738)
+- Autocomplete: Added new retrieval and mixing strategies to improve Autocomplete context. [pull/1752](https://github.com/sourcegraph/cody/pull/1752)
+- Commands: Supports passing additional input text to commands via the chat input box. For example, adds additional instruction after the command key: `/explain response in Spanish`. [pull/1731](https://github.com/sourcegraph/cody/pull/1731)
 
 ### Fixed
 
@@ -24,6 +358,9 @@ Starting from `0.2.0`, Cody is using `major.EVEN_NUMBER.patch` for release versi
 - Chat: Prevent `"command 'cody.chat'panel.new' not found"` error when the new chat panel UI is disabled. [pull/1696](https://github.com/sourcegraph/cody/pull/1696)
 - Autocomplete: Improved the multiline completions truncation logic. [pull/1709](https://github.com/sourcegraph/cody/pull/1709)
 - Autocomplete: Fix an issue where typing as suggested causes the completion to behave unexpectedly. [pull/1701](https://github.com/sourcegraph/cody/pull/1701)
+- Chat: Forbid style tags in DOMPurify config to prevent code block rendering issues. [pull/1747](https://github.com/sourcegraph/cody/pull/1747)
+- Edit: Fix `selectedCode` and `problemCode` sometimes being added to the document after an edit. [pull/1765](https://github.com/sourcegraph/cody/pull/1765)
+- Edit: Fix the code lens containing options to diff, undo and retry being automatically dismissed for users who have `autoSave` enabled. [pull/1767](https://github.com/sourcegraph/cody/pull/1767)
 
 ### Changed
 
@@ -31,6 +368,9 @@ Starting from `0.2.0`, Cody is using `major.EVEN_NUMBER.patch` for release versi
 - Edit: Fixed an issue where the diff for an edit could expand recursively each time it is viewed. [pull/1621](https://github.com/sourcegraph/cody/pull/1621)
 - Editor Title Icon has been moved out of the experimental stage and is now enabled by default. [pull/1651](https://github.com/sourcegraph/cody/pull/1651)
 - Clean up login page styles and make Enterprise login more prominent. [pull/1708](https://github.com/sourcegraph/cody/pull/1708)
+- Autocomplete: Slightly increase the amount of time we wait for another keystroke before starting completion requests. [pull/1737](https://github.com/sourcegraph/cody/pull/1737)
+- Improved new chat model selector styles. [pull/1750](https://github.com/sourcegraph/cody/pull/1750)
+- Improved response time for chat, commands and edits on repositories without embeddings. [pull/1722](https://github.com/sourcegraph/cody/pull/1722)
 
 ## [0.14.5]
 
@@ -229,7 +569,7 @@ Starting from `0.2.0`, Cody is using `major.EVEN_NUMBER.patch` for release versi
 - Remove `starter` and `premade` fields from the configuration files for custom commands (cody.json). [pull/939](https://github.com/sourcegraph/cody/pull/939)
 - Enabled streaming responses for all autocomplete requests. [pull/995](https://github.com/sourcegraph/cody/pull/995)
 - Sign out immediately instead of showing the quick-pick menu. [pull/1032](https://github.com/sourcegraph/cody/pull/1032)
-- UX improvements to the custom command workflow (and new [custom command docs](https://docs.sourcegraph.com/cody/custom-commands)). [pull/992](https://github.com/sourcegraph/cody/pull/992)
+- UX improvements to the custom command workflow (and new [custom command docs](https://sourcegraph.com/docs/cody/custom-commands)). [pull/992](https://github.com/sourcegraph/cody/pull/992)
 - You can now use `alt` + `\` to trigger autocomplete requests manually. [pull/1060](https://github.com/sourcegraph/cody/pull/1060)
 - Slightly reduce latency when manually triggering autocomplete requests. [pull/1060](https://github.com/sourcegraph/cody/pull/1060)
 - Configure autocomplete provider based on cody LLM settings in site config. [pull/1035](https://github.com/sourcegraph/cody/pull/1035)

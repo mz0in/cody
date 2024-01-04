@@ -6,13 +6,15 @@ import {
     ChatButton,
     ChatContextStatus,
     ChatMessage,
+    ChatModelProvider,
     CodyPrompt,
     ContextFile,
+    Guardrails,
     isDefined,
 } from '@sourcegraph/cody-shared'
 
 import { CodeBlockMeta } from './chat/CodeBlocks'
-import { FileLinkProps } from './chat/ContextFiles'
+import { FileLinkProps } from './chat/components/ContextFiles'
 import { ChatInputContext } from './chat/inputContext/ChatInputContext'
 import { SymbolLinkProps } from './chat/PreciseContext'
 import { Transcript } from './chat/Transcript'
@@ -63,11 +65,23 @@ interface ChatProps extends ChatClassNames {
     filterChatCommands?: (chatCommands: [string, CodyPrompt][], input: string) => [string, CodyPrompt][]
     ChatCommandsComponent?: React.FunctionComponent<ChatCommandsProps>
     isTranscriptError?: boolean
-    contextSelection?: ContextFile[]
+    contextSelection?: ContextFile[] | null
     UserContextSelectorComponent?: React.FunctionComponent<UserContextSelectorProps>
-    chatModels?: ChatModelSelection[]
-    ChatModelDropdownMenu?: React.FunctionComponent<{ models: ChatModelSelection[]; disabled: boolean }>
+    chatModels?: ChatModelProvider[]
+    EnhancedContextSettings?: React.FunctionComponent<{ isOpen: boolean; setOpen: (open: boolean) => void }>
+    ChatModelDropdownMenu?: React.FunctionComponent<ChatModelDropdownMenuProps>
+    onCurrentChatModelChange?: (model: ChatModelProvider) => void
+    userInfo: UserAccountInfo
+    postMessage?: ApiPostMessage
+    guardrails?: Guardrails
 }
+
+export interface UserAccountInfo {
+    isDotComUser: boolean
+    isCodyProUser: boolean
+}
+
+export type ApiPostMessage = (message: any) => void
 
 interface ChatClassNames extends TranscriptItemClassNames {
     inputRowClassName?: string
@@ -79,6 +93,7 @@ export interface ChatButtonProps {
     label: string
     action: string
     onClick: (action: string) => void
+    appearance?: 'primary' | 'secondary' | 'icon'
 }
 
 export interface ChatUITextAreaProps {
@@ -91,12 +106,15 @@ export interface ChatUITextAreaProps {
     onInput: React.FormEventHandler<HTMLElement>
     setValue?: (value: string) => void
     onKeyDown?: (event: React.KeyboardEvent<HTMLElement>, caretPosition: number | null) => void
+    onFocus?: (event: React.FocusEvent<HTMLElement>) => void
+    chatModels?: ChatModelProvider[]
 }
 
 export interface ChatUISubmitButtonProps {
     className: string
     disabled: boolean
     onClick: (event: React.MouseEvent<HTMLButtonElement>) => void
+    onAbortMessageInProgress?: () => void
 }
 
 export interface ChatUISuggestionButtonProps {
@@ -141,11 +159,11 @@ export interface UserContextSelectorProps {
 
 export type ChatSubmitType = 'user' | 'suggestion' | 'example'
 
-export interface ChatModelSelection {
-    title?: string
-    model: string
-    provider: string
-    default: boolean
+export interface ChatModelDropdownMenuProps {
+    models: ChatModelProvider[]
+    disabled: boolean // Disabled when transcript length > 1
+    onCurrentChatModelChange: (model: ChatModelProvider) => void
+    userInfo: UserAccountInfo
 }
 
 /**
@@ -207,6 +225,11 @@ export const Chat: React.FunctionComponent<ChatProps> = ({
     contextSelection,
     chatModels,
     ChatModelDropdownMenu,
+    EnhancedContextSettings,
+    onCurrentChatModelChange,
+    userInfo,
+    postMessage,
+    guardrails,
 }) => {
     const [inputRows, setInputRows] = useState(1)
     const [displayCommands, setDisplayCommands] = useState<[string, CodyPrompt & { instruction?: string }][] | null>(
@@ -218,8 +241,6 @@ export const Chat: React.FunctionComponent<ChatProps> = ({
     // The context files added via the chat input by user
     const [chatContextFiles, setChatContextFiles] = useState<Map<string, ContextFile>>(new Map([]))
     const [selectedChatContext, setSelectedChatContext] = useState(0)
-    // TODO support toggling between enabling and disabling enhanceContext
-    // const [enhanceContext, setEnhanceContext] = useState(transcript.length < 2)
 
     /**
      * Callback function called when a chat context file is selected from the context selector.
@@ -237,13 +258,16 @@ export const Chat: React.FunctionComponent<ChatProps> = ({
             const lastAtIndex = input.lastIndexOf('@')
             if (lastAtIndex >= 0 && selected) {
                 // Trim the @file portion from input
-                const inputWithoutAtFileInput = input.slice(0, lastAtIndex)
+                const inputPrefix = input.slice(0, lastAtIndex)
                 const isFileType = selected.type === 'file'
                 const range = selected.range ? `:${selected.range?.start.line}-${selected.range?.end.line}` : ''
                 const symbolName = isFileType ? '' : `#${selected.fileName}`
                 // Add empty space at the end to end the file matching process
-                const fileDisplayText = `@${selected.path?.relative}${range}${symbolName} `
-                const newInput = `${inputWithoutAtFileInput}${fileDisplayText}`
+                const fileDisplayText = `@${selected.path?.relative}${range}${symbolName}`
+                const inputSuffix = input.includes(fileDisplayText)
+                    ? input.slice(input.lastIndexOf(fileDisplayText) + fileDisplayText.length, -1)
+                    : ''
+                const newInput = `${inputPrefix}${fileDisplayText}${inputSuffix} `
 
                 // we will use the newInput as key to check if the file still exists in formInput on submit
                 setChatContextFiles(new Map(chatContextFiles).set(fileDisplayText, selected))
@@ -256,18 +280,27 @@ export const Chat: React.FunctionComponent<ChatProps> = ({
     // Handles selecting a chat command when the user types a slash in the chat input.
     const chatCommentSelectionHandler = useCallback(
         (inputValue: string): void => {
-            if (!chatCommands || !ChatCommandsComponent) {
+            if (!chatCommands?.length || !ChatCommandsComponent) {
                 return
             }
             if (inputValue === '/') {
                 setDisplayCommands(chatCommands)
-                setSelectedChatCommand(chatCommands.length)
+                setSelectedChatCommand(0)
                 return
             }
             if (inputValue.startsWith('/')) {
+                const splittedValue = inputValue.split(' ')
+                if (splittedValue.length > 1) {
+                    const matchedCommand = chatCommands.filter(([name]) => name === splittedValue[0])
+                    if (matchedCommand.length === 1) {
+                        setDisplayCommands(matchedCommand)
+                        setSelectedChatCommand(0)
+                    }
+                    return
+                }
                 const filteredCommands = filterChatCommands
                     ? filterChatCommands(chatCommands, inputValue)
-                    : chatCommands.filter(([_, prompt]) => prompt.slashCommand?.startsWith(inputValue))
+                    : chatCommands.filter(command => command[1].slashCommand?.startsWith(inputValue))
                 setDisplayCommands(filteredCommands)
                 setSelectedChatCommand(0)
                 return
@@ -308,7 +341,7 @@ export const Chat: React.FunctionComponent<ChatProps> = ({
             setDisplayCommands(null)
             setSelectedChatCommand(-1)
         },
-        [inputHistory, messageInProgress, onSubmit, setInputHistory, setSuggestions, chatContextFiles]
+        [messageInProgress, onSubmit, chatContextFiles, setSuggestions, inputHistory, setInputHistory]
     )
     const onChatInput = useCallback(
         ({ target }: React.SyntheticEvent) => {
@@ -342,12 +375,21 @@ export const Chat: React.FunctionComponent<ChatProps> = ({
                 return
             }
 
+            // Allows backspace and delete keystrokes to remove characters
+            const deleteKeysList = new Set(['Backspace', 'Delete'])
+            if (deleteKeysList.has(event.key)) {
+                setSelectedChatCommand(-1)
+                setSelectedChatContext(0)
+                return
+            }
+
             // Handles keyboard shortcuts with Ctrl key.
             // Checks if the Ctrl key is pressed with a key not in the allow list
             // to avoid triggering default browser shortcuts and bubbling the event.
             const ctrlKeysAllowList = new Set(['a', 'c', 'v', 'x', 'y', 'z'])
-            if ((event.ctrlKey || event.getModifierState('AltGraph')) && !ctrlKeysAllowList.has(event.key)) {
+            if (event.ctrlKey && !ctrlKeysAllowList.has(event.key)) {
                 event.preventDefault()
+                return
             }
 
             // Ignore alt + c key combination for editor to avoid conflict with cody shortcut
@@ -361,28 +403,24 @@ export const Chat: React.FunctionComponent<ChatProps> = ({
             if (displayCommands && formInput.startsWith('/')) {
                 if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
                     event.preventDefault()
-                    event.stopPropagation()
                     const commandsLength = displayCommands?.length
                     const curIndex = event.key === 'ArrowUp' ? selectedChatCommand - 1 : selectedChatCommand + 1
-                    const newIndex = curIndex < 0 ? commandsLength - 1 : curIndex >= commandsLength - 1 ? 0 : curIndex
+                    const newIndex = curIndex < 0 ? commandsLength - 1 : curIndex > commandsLength - 1 ? 0 : curIndex
                     setSelectedChatCommand(newIndex)
                     const newInput = displayCommands?.[newIndex]?.[1]?.slashCommand
                     setFormInput(newInput || formInput)
+                    return
                 }
                 // close the chat command suggestions on escape key
                 if (event.key === 'Escape') {
                     setDisplayCommands(null)
                     setSelectedChatCommand(-1)
                     setFormInput('')
+                    return
                 }
                 // tab/enter to complete
-                if (
-                    (event.key === 'Tab' || event.key === 'Enter') &&
-                    selectedChatCommand > -1 &&
-                    displayCommands.length
-                ) {
+                if ((event.key === 'Tab' || event.key === 'Enter') && displayCommands.length) {
                     event.preventDefault()
-                    event.stopPropagation()
                     const selectedCommand = displayCommands?.[selectedChatCommand]?.[1]
                     if (formInput.startsWith(selectedCommand?.slashCommand)) {
                         // submit message if the input has slash command already completed
@@ -391,6 +429,8 @@ export const Chat: React.FunctionComponent<ChatProps> = ({
                     } else {
                         const newInput = selectedCommand?.slashCommand
                         setFormInput(newInput || formInput)
+                        setDisplayCommands(null)
+                        setSelectedChatCommand(-1)
                     }
                 }
                 return
@@ -403,7 +443,6 @@ export const Chat: React.FunctionComponent<ChatProps> = ({
                     const selectionLength = contextSelection?.length - 1
                     const newIndex = event.key === 'ArrowUp' ? selectedChatContext - 1 : selectedChatContext + 1
                     const newMatchIndex = newIndex < 0 ? selectionLength : newIndex > selectionLength ? 0 : newIndex
-                    console.log(newIndex, newMatchIndex, contextSelection)
                     setSelectedChatContext(newMatchIndex)
                     return
                 }
@@ -431,14 +470,13 @@ export const Chat: React.FunctionComponent<ChatProps> = ({
             // trim the formInput to make sure input value is not empty.
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && formInput?.trim()) {
                 event.preventDefault()
-                event.stopPropagation()
                 setMessageBeingEdited(false)
                 onChatSubmit()
                 return
             }
 
             // Loop through input history on up arrow press
-            if (!inputHistory.length) {
+            if (!inputHistory?.length) {
                 return
             }
 
@@ -479,6 +517,7 @@ export const Chat: React.FunctionComponent<ChatProps> = ({
                 speaker: 'assistant',
                 displayText: welcomeText({ helpMarkdown, afterMarkdown }),
                 buttons: gettingStartedButtons,
+                data: 'welcome-text',
             },
             ...transcript,
         ],
@@ -486,6 +525,8 @@ export const Chat: React.FunctionComponent<ChatProps> = ({
     )
 
     const isGettingStartedComponentVisible = transcript.length === 0 && GettingStartedComponent !== undefined
+
+    const [isEnhancedContextOpen, setIsEnhancedContextOpen] = useState(false)
 
     return (
         <div className={classNames(className, styles.innerContainer)}>
@@ -524,7 +565,11 @@ export const Chat: React.FunctionComponent<ChatProps> = ({
                     ChatButtonComponent={ChatButtonComponent}
                     isTranscriptError={isTranscriptError}
                     chatModels={chatModels}
+                    onCurrentChatModelChange={onCurrentChatModelChange}
                     ChatModelDropdownMenu={ChatModelDropdownMenu}
+                    userInfo={userInfo}
+                    postMessage={postMessage}
+                    guardrails={guardrails}
                 />
             )}
 
@@ -533,7 +578,11 @@ export const Chat: React.FunctionComponent<ChatProps> = ({
             )}
 
             <form className={classNames(styles.inputRow, inputRowClassName)}>
-                {!displayCommands && suggestions !== undefined && suggestions.length !== 0 && SuggestionButton ? (
+                {!displayCommands &&
+                !contextSelection &&
+                suggestions !== undefined &&
+                suggestions.length !== 0 &&
+                SuggestionButton ? (
                     <div className={styles.suggestions}>
                         {suggestions.map((suggestion: string) =>
                             suggestion.trim().length > 0 ? (
@@ -551,9 +600,8 @@ export const Chat: React.FunctionComponent<ChatProps> = ({
                         <AbortMessageInProgressButton onAbortMessageInProgress={onAbortMessageInProgress} />
                     </div>
                 )}
-                {ContextStatusComponent && <ContextStatusComponent {...contextStatusComponentProps} />}
                 <div className={styles.textAreaContainer}>
-                    {displayCommands && ChatCommandsComponent && formInput && (
+                    {displayCommands && ChatCommandsComponent && formInput.startsWith('/') && (
                         <ChatCommandsComponent
                             chatCommands={displayCommands}
                             selectedChatCommand={selectedChatCommand}
@@ -572,26 +620,42 @@ export const Chat: React.FunctionComponent<ChatProps> = ({
                             setSelectedChatContext={setSelectedChatContext}
                         />
                     )}
-                    <TextArea
-                        className={classNames(styles.chatInput, chatInputClassName)}
-                        rows={inputRows}
-                        value={isCodyEnabled ? formInput : 'Cody is disabled on this instance'}
-                        autoFocus={true}
-                        required={true}
-                        disabled={needsEmailVerification || !isCodyEnabled}
-                        onInput={onChatInput}
-                        onKeyDown={onChatKeyDown}
-                        setValue={inputHandler}
-                    />
+                    <div className={styles.chatInputContainer}>
+                        <TextArea
+                            className={classNames(styles.chatInput, chatInputClassName)}
+                            rows={inputRows}
+                            value={isCodyEnabled ? formInput : 'Cody is disabled on this instance'}
+                            autoFocus={true}
+                            required={true}
+                            disabled={needsEmailVerification || !isCodyEnabled}
+                            onInput={onChatInput}
+                            onFocus={() => setIsEnhancedContextOpen(false)}
+                            onKeyDown={onChatKeyDown}
+                            setValue={inputHandler}
+                            chatModels={chatModels}
+                        />
+                        {EnhancedContextSettings && (
+                            <div className={styles.contextButton}>
+                                <EnhancedContextSettings
+                                    isOpen={isEnhancedContextOpen}
+                                    setOpen={setIsEnhancedContextOpen}
+                                />
+                            </div>
+                        )}
+                    </div>
                     <SubmitButton
                         className={styles.submitButton}
                         onClick={onChatSubmit}
-                        disabled={
-                            !!messageInProgress || needsEmailVerification || !isCodyEnabled || formInput.length === 0
+                        disabled={needsEmailVerification || !isCodyEnabled || (!formInput.length && !messageInProgress)}
+                        onAbortMessageInProgress={
+                            !AbortMessageInProgressButton && messageInProgress ? onAbortMessageInProgress : undefined
                         }
                     />
                 </div>
-                {!ContextStatusComponent && contextStatus && (
+                {!EnhancedContextSettings && ContextStatusComponent && (
+                    <ContextStatusComponent {...contextStatusComponentProps} />
+                )}
+                {!EnhancedContextSettings && !ContextStatusComponent && contextStatus && (
                     <ChatInputContext contextStatus={contextStatus} className={chatInputContextClassName} />
                 )}
             </form>
@@ -607,10 +671,8 @@ interface WelcomeTextOptions {
 }
 
 function welcomeText({
-    helpMarkdown = 'See [Cody documentation](https://docs.sourcegraph.com/cody) for help and tips.',
+    helpMarkdown = 'See [Cody documentation](https://sourcegraph.com/docs/cody) for help and tips.',
     afterMarkdown,
 }: WelcomeTextOptions): string {
-    return ["Hello! I'm Cody. I can write code and answer questions for you. " + helpMarkdown, afterMarkdown]
-        .filter(isDefined)
-        .join('\n\n')
+    return [helpMarkdown, afterMarkdown].filter(isDefined).join('\n\n')
 }

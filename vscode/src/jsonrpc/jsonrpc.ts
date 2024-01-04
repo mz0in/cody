@@ -1,16 +1,20 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import assert from 'assert'
+import { ChildProcessWithoutNullStreams } from 'child_process'
 import { appendFileSync, existsSync, mkdirSync, rmSync } from 'fs'
 import { dirname } from 'path'
 import { Readable, Writable } from 'stream'
 
 import * as vscode from 'vscode'
 
+import { isRateLimitError } from '@sourcegraph/cody-shared/dist/sourcegraph-api/errors'
+
 import * as agent from './agent-protocol'
 import * as bfg from './bfg-protocol'
+import * as embeddings from './embeddings-protocol'
 
-type Requests = bfg.Requests & agent.Requests
-type Notifications = bfg.Notifications & agent.Notifications
+type Requests = bfg.Requests & agent.Requests & embeddings.Requests
+type Notifications = bfg.Notifications & agent.Notifications & embeddings.Notifications
 
 // This file is a standalone implementation of JSON-RPC for Node.js
 // ReadStream/WriteStream, which conventionally map to stdin/stdout.
@@ -41,6 +45,8 @@ enum ErrorCode {
     MethodNotFound = -32601,
     InvalidParams = -32602,
     InternalError = -32603,
+    RequestCanceled = -32604,
+    RateLimitError = -32000,
 }
 
 // Result of an erroneous request, which populates the `error` property instead
@@ -49,6 +55,30 @@ interface ErrorInfo<T> {
     code: ErrorCode
     message: string
     data: T
+}
+
+class JsonrpcError extends Error {
+    constructor(public readonly info: ErrorInfo<any>) {
+        super()
+    }
+    public toString(): string {
+        return `${this.name}: ${this.message}`
+    }
+    public get name(): string {
+        return ErrorCode[this.info.code]
+    }
+    public get message(): string {
+        if (typeof this.info?.data === 'string') {
+            try {
+                const data = JSON.parse(this.info.data)
+                return `${this.info.message}: ${JSON.stringify(data, null, 2)}`
+            } catch {
+                // ignore
+            }
+            return `${this.info.message}: ${this.info.data}`
+        }
+        return this.info.message
+    }
 }
 
 // The three different kinds of toplevel JSON objects that get written to the
@@ -160,7 +190,14 @@ class MessageDecoder extends Writable {
                         if (tracePath) {
                             appendFileSync(tracePath, '<- ' + JSON.stringify({ error }, null, 4) + '\n')
                         }
-                        this.callback(error, null)
+                        process.stderr.write(
+                            `jsonrpc.ts: JSON parse error against input '${this.contentBuffer}', contentLengthRemaining=${this.contentLengthRemaining}. Error:\n${error}\n`
+                        )
+                        // Kill the process to surface the error as early as
+                        // possible. Before, we did `this.callback(error, null)`
+                        // and it regularly got the agent into an infinite loop
+                        // that was difficult to debug.
+                        process.exit(1)
                     }
 
                     continue
@@ -211,7 +248,7 @@ type RequestCallback<M extends RequestMethodName> = (
     params: ParamsOf<M>,
     cancelToken: vscode.CancellationToken
 ) => Promise<ResultOf<M>>
-type NotificationCallback<M extends NotificationMethodName> = (params: ParamsOf<M>) => void
+type NotificationCallback<M extends NotificationMethodName> = (params: ParamsOf<M>) => void | Promise<void>
 
 /**
  * Only exported API in this file. MessageHandler exposes a public `messageDecoder` property
@@ -223,7 +260,7 @@ export class MessageHandler {
     private cancelTokens: Map<Id, vscode.CancellationTokenSource> = new Map()
     private notificationHandlers: Map<NotificationMethodName, NotificationCallback<any>> = new Map()
     private alive = true
-    private processExitedError = new Error('Process has exited')
+    private processExitedError: () => Error = () => new Error('Process has exited')
     private responseHandlers: Map<
         Id,
         {
@@ -236,9 +273,34 @@ export class MessageHandler {
     }
     public exit(): void {
         this.alive = false
+        const error = this.processExitedError()
         for (const { reject } of this.responseHandlers.values()) {
-            reject(this.processExitedError)
+            reject(error)
         }
+    }
+
+    public connectProcess(child: ChildProcessWithoutNullStreams, reject?: (error: Error) => void): void {
+        child.on('disconnect', () => {
+            reject?.(new Error('disconnect'))
+            this.exit()
+        })
+        child.on('close', () => {
+            reject?.(new Error('close'))
+            this.exit()
+        })
+        child.on('error', error => {
+            reject?.(error)
+            this.exit()
+        })
+        child.on('exit', code => {
+            reject?.(new Error(`exit: ${code}`))
+            this.exit()
+        })
+        child.stderr.on('data', data => {
+            console.error(`----stderr----\n${data}--------------`)
+        })
+        child.stdout.pipe(this.messageDecoder)
+        this.messageEncoder.pipe(child.stdin)
     }
 
     // TODO: RPC error handling
@@ -274,12 +336,23 @@ export class MessageHandler {
                         error => {
                             const message = error instanceof Error ? error.message : `${error}`
                             const stack = error instanceof Error ? `\n${error.stack}` : ''
+                            const code = cancelToken.token.isCancellationRequested
+                                ? ErrorCode.RequestCanceled
+                                : isRateLimitError(error)
+                                ? ErrorCode.RateLimitError
+                                : ErrorCode.InternalError
                             const data: ResponseMessage<any> = {
                                 jsonrpc: '2.0',
                                 id: msg.id,
                                 error: {
-                                    code: ErrorCode.InternalError,
-                                    message,
+                                    code,
+                                    // Include the stack in the message because
+                                    // some JSON-RPC bindings like lsp4j don't
+                                    // expose access to the `data` property,
+                                    // only `message`. The stack is super
+                                    // helpful to track down unexpected
+                                    // exceptions.
+                                    message: `${message}\n${stack}`,
                                     data: JSON.stringify({ error, stack }),
                                 },
                             }
@@ -297,7 +370,11 @@ export class MessageHandler {
             // Responses have ids
             const handler = this.responseHandlers.get(msg.id)
             if (handler) {
-                handler.resolve(msg.result)
+                if (msg?.error) {
+                    handler.reject(new JsonrpcError(msg.error))
+                } else {
+                    handler.resolve(msg.result)
+                }
                 this.responseHandlers.delete(msg.id)
             } else {
                 console.error(`No handler for response with id ${msg.id}`)
@@ -314,7 +391,7 @@ export class MessageHandler {
             } else {
                 const notificationHandler = this.notificationHandlers.get(msg.method)
                 if (notificationHandler) {
-                    notificationHandler(msg.params)
+                    void notificationHandler(msg.params)
                 } else {
                     console.error(`No handler for notification with method ${msg.method}`)
                 }
@@ -334,7 +411,7 @@ export class MessageHandler {
 
     public request<M extends RequestMethodName>(method: M, params: ParamsOf<M>): Promise<ResultOf<M>> {
         if (!this.isAlive()) {
-            throw this.processExitedError
+            throw this.processExitedError()
         }
         const id = this.id++
 
@@ -353,7 +430,7 @@ export class MessageHandler {
 
     public notify<M extends NotificationMethodName>(method: M, params: ParamsOf<M>): void {
         if (!this.isAlive()) {
-            throw this.processExitedError
+            throw this.processExitedError()
         }
         const data: NotificationMessage<M> = {
             jsonrpc: '2.0',
@@ -369,7 +446,7 @@ export class MessageHandler {
      */
     public clientForThisInstance(): InProcessClient {
         if (!this.isAlive()) {
-            throw this.processExitedError
+            throw this.processExitedError()
         }
         return new InProcessClient(this.requestHandlers, this.notificationHandlers)
     }
@@ -399,7 +476,7 @@ export class InProcessClient {
     public notify<M extends NotificationMethodName>(method: M, params: ParamsOf<M>): void {
         const handler = this.notificationHandlers.get(method)
         if (handler) {
-            handler(params)
+            void handler(params)
             return
         }
         throw new Error('No such notification handler: ' + method)

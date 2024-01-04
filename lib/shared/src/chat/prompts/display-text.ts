@@ -1,6 +1,8 @@
 import { ContextFile } from '../../codebase-context/messages'
 import { ActiveTextEditorSelection } from '../../editor'
 
+import { trailingNonAlphaNumericRegex } from './utils'
+
 /**
  * Creates display text for the given context files by replacing file names with markdown links.
  */
@@ -37,7 +39,8 @@ export function createDisplayTextWithFileSelection(
     const displayText = `${humanInput} @${fileName}`
     const fsPath = selection?.fileUri?.fsPath
     const startLine = selection?.selectionRange?.start?.line
-    if (!fsPath || !startLine) {
+    const endLine = selection?.selectionRange?.end?.line
+    if (!fsPath || !endLine) {
         return displayText
     }
 
@@ -56,14 +59,18 @@ export function replaceFileNameWithMarkdownLink(
     startLine = 0
 ): string {
     // Create markdown link to the file
-    const range = startLine ? `:${startLine}` : ''
-    const fileLink = `vscode://file${fsPath}${range}`
-    const markdownText = `[_${fileName.trim()}_](${fileLink})`
+    const fileLink = `${fsPath}:range:${startLine}`
 
-    // Escape special characters in fileName for regex
-    const escapedFileName = fileName.replaceAll(/[$()*+./?[\\\]^{|}-]/g, '\\$&')
+    // Encode the filename to go on the command: link in a way that preserves all characters
+    // including backslashes from Windows paths:
+    // https://github.com/microsoft/vscode/issues/200965
+    const encodedFileLink = encodeURIComponent(JSON.stringify(fileLink))
+    // Then encode the complete link to go into Markdown.
+    const markdownText = `[_${fileName.trim()}_](command:cody.chat.open.file?${encodedFileLink})`
 
-    // Updated regex to match the file name with optional line number, range, and symbol name
-    const textToBeReplaced = new RegExp(`(${escapedFileName})(:\\d+(-\\d+)?(#\\S+)?)?(?!\\S)`, 'g')
-    return humanInput.replaceAll(textToBeReplaced, markdownText).trim()
+    // Use regex to makes sure the file name is surrounded by spaces and not a substring of another file name
+    const textToBeReplaced = new RegExp(`\\s*${fileName.replaceAll(/[$()*+./?[\\\]^{|}-]/g, '\\$&')}(?!\\S)`, 'g')
+    const text = humanInput.replace(trailingNonAlphaNumericRegex, '').replaceAll(textToBeReplaced, ` ${markdownText}`)
+    const lastChar = trailingNonAlphaNumericRegex.test(humanInput) ? humanInput.slice(-1) : ''
+    return (text + lastChar).trim()
 }

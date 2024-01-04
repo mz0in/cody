@@ -6,13 +6,7 @@ import { CodebaseContext } from '../../codebase-context'
 import { MAX_AVAILABLE_PROMPT_LENGTH } from '../../prompt/constants'
 import { CODY_INTRO_PROMPT } from '../../prompt/prompt-mixin'
 import { Message } from '../../sourcegraph-api'
-import {
-    defaultKeywordContextFetcher,
-    MockEditor,
-    MockEmbeddingsClient,
-    MockIntentDetector,
-    newRecipeContext,
-} from '../../test/mocks'
+import { MockEditor, MockEmbeddingsClient, MockIntentDetector, newRecipeContext } from '../../test/mocks'
 import { ChatQuestion } from '../recipes/chat-question'
 
 import { Transcript } from '.'
@@ -80,15 +74,16 @@ describe('Transcript', () => {
                 codebaseContext: new CodebaseContext(
                     {
                         useContext: 'embeddings',
-                        serverEndpoint: 'https://example.com',
                         experimentalLocalSymbols: false,
                     },
                     'dummy-codebase',
+                    () => 'https://example.com',
                     embeddings,
-                    defaultKeywordContextFetcher,
+                    null,
                     null,
                     null
                 ),
+                addEnhancedContext: true,
             })
         )
 
@@ -122,16 +117,16 @@ describe('Transcript', () => {
                 codebaseContext: new CodebaseContext(
                     {
                         useContext: 'embeddings',
-                        serverEndpoint: 'https://example.com',
                         experimentalLocalSymbols: false,
                     },
                     'dummy-codebase',
+                    () => 'https://example.com',
                     embeddings,
-                    defaultKeywordContextFetcher,
+                    null,
                     null,
                     null
                 ),
-                firstInteraction: true,
+                addEnhancedContext: true,
             })
         )
 
@@ -160,10 +155,11 @@ describe('Transcript', () => {
         })
         const intentDetector = new MockIntentDetector({ isCodebaseContextRequired: async () => Promise.resolve(true) })
         const codebaseContext = new CodebaseContext(
-            { useContext: 'embeddings', serverEndpoint: 'https://example.com', experimentalLocalSymbols: false },
+            { useContext: 'embeddings', experimentalLocalSymbols: false },
             'dummy-codebase',
+            () => 'https://example.com',
             embeddings,
-            defaultKeywordContextFetcher,
+            null,
             null,
             null
         )
@@ -171,14 +167,15 @@ describe('Transcript', () => {
         const chatQuestionRecipe = new ChatQuestion(() => {})
         const transcript = new Transcript()
 
-        const firstInteraction = await chatQuestionRecipe.getInteraction(
+        const addEnhancedContext = await chatQuestionRecipe.getInteraction(
             'how do access tokens work in sourcegraph',
             newRecipeContext({
                 intentDetector,
                 codebaseContext,
+                addEnhancedContext: true,
             })
         )
-        transcript.addInteraction(firstInteraction)
+        transcript.addInteraction(addEnhancedContext)
 
         const assistantResponse = 'By setting the Authorization header.'
         transcript.addAssistantResponse(assistantResponse)
@@ -188,6 +185,7 @@ describe('Transcript', () => {
             newRecipeContext({
                 intentDetector,
                 codebaseContext,
+                addEnhancedContext: true,
             })
         )
         transcript.addInteraction(secondInteraction)
@@ -245,12 +243,16 @@ describe('Transcript', () => {
                     textResults: [{ fileName: 'docs/README.md', startLine: 0, endLine: 1, content: '# Main' }],
                 }),
         })
-        const intentDetector = new MockIntentDetector({ isCodebaseContextRequired: async () => Promise.resolve(true) })
+        const intentDetector = new MockIntentDetector({
+            isCodebaseContextRequired: async () => Promise.resolve(true),
+            isEditorContextRequired: () => true,
+        })
         const codebaseContext = new CodebaseContext(
-            { useContext: 'embeddings', serverEndpoint: 'https://example.com', experimentalLocalSymbols: false },
+            { useContext: 'embeddings', experimentalLocalSymbols: false },
             'dummy-codebase',
+            () => 'https://example.com',
             embeddings,
-            defaultKeywordContextFetcher,
+            null,
             null,
             null
         )
@@ -259,11 +261,12 @@ describe('Transcript', () => {
         const transcript = new Transcript()
 
         const interaction = await chatQuestionRecipe.getInteraction(
-            'how do access tokens work in sourcegraph',
+            'in my current file, how do access tokens work in sourcegraph',
             newRecipeContext({
                 editor,
                 intentDetector,
                 codebaseContext,
+                addEnhancedContext: true,
             })
         )
         transcript.addInteraction(interaction)
@@ -285,7 +288,10 @@ describe('Transcript', () => {
                 speaker: 'assistant',
                 text: 'Ok.',
             },
-            { speaker: 'human', text: CODY_INTRO_PROMPT + 'how do access tokens work in sourcegraph' },
+            {
+                speaker: 'human',
+                text: CODY_INTRO_PROMPT + 'in my current file, how do access tokens work in sourcegraph',
+            },
             { speaker: 'assistant', text: undefined },
         ]
         assert.deepStrictEqual(prompt, expectedPrompt)
@@ -325,10 +331,11 @@ describe('Transcript', () => {
         })
         const intentDetector = new MockIntentDetector({ isCodebaseContextRequired: async () => Promise.resolve(true) })
         const codebaseContext = new CodebaseContext(
-            { useContext: 'embeddings', serverEndpoint: 'https://example.com', experimentalLocalSymbols: false },
+            { useContext: 'embeddings', experimentalLocalSymbols: false },
             'dummy-codebase',
+            () => 'https://example.com',
             embeddings,
-            defaultKeywordContextFetcher,
+            null,
             null,
             null
         )
@@ -341,6 +348,7 @@ describe('Transcript', () => {
             newRecipeContext({
                 intentDetector,
                 codebaseContext,
+                addEnhancedContext: true,
             })
         )
         transcript.addInteraction(firstInteraction)
@@ -351,6 +359,7 @@ describe('Transcript', () => {
             newRecipeContext({
                 intentDetector,
                 codebaseContext,
+                addEnhancedContext: true,
             })
         )
         transcript.addInteraction(secondInteraction)
@@ -359,8 +368,9 @@ describe('Transcript', () => {
         const thirdInteraction = await chatQuestionRecipe.getInteraction(
             'how do to delete them',
             newRecipeContext({
-                // Here, we use the default intent detector to disable context fetching.
                 codebaseContext,
+                // Disable context fetching.
+                addEnhancedContext: true,
             })
         )
         transcript.addInteraction(thirdInteraction)
@@ -369,12 +379,12 @@ describe('Transcript', () => {
         const expectedPrompt = [
             { speaker: 'human', text: CODY_INTRO_PROMPT + 'how do batch changes work in sourcegraph' },
             { speaker: 'assistant', text: 'Smartly.' },
+            { speaker: 'human', text: CODY_INTRO_PROMPT + 'how do access tokens work in sourcegraph' },
+            { speaker: 'assistant', text: 'By setting the Authorization header.' },
             { speaker: 'human', text: 'Use the following text from file `docs/README.md`:\n# Main' },
             { speaker: 'assistant', text: 'Ok.' },
             { speaker: 'human', text: 'Use following code snippet from file `src/main.go`:\n```go\npackage main\n```' },
             { speaker: 'assistant', text: 'Ok.' },
-            { speaker: 'human', text: CODY_INTRO_PROMPT + 'how do access tokens work in sourcegraph' },
-            { speaker: 'assistant', text: 'By setting the Authorization header.' },
             { speaker: 'human', text: CODY_INTRO_PROMPT + 'how do to delete them' },
             { speaker: 'assistant', text: undefined },
         ]

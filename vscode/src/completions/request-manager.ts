@@ -1,9 +1,11 @@
 import { LRUCache } from 'lru-cache'
 import * as vscode from 'vscode'
 
+import { wrapInActiveSpan } from '@sourcegraph/cody-shared/src/tracing'
+
 import { DocumentContext } from './get-current-doc-context'
 import { InlineCompletionsResultSource, LastInlineCompletionCandidate } from './get-inline-completions'
-import { CompletionLogID, logCompletionEvent } from './logger'
+import { CompletionLogID, logCompletionBookkeepingEvent } from './logger'
 import { CompletionProviderTracer, Provider } from './providers/provider'
 import { reuseLastCandidate } from './reuse-last-candidate'
 import {
@@ -32,7 +34,15 @@ export interface RequestParams {
 
 export interface RequestManagerResult {
     completions: InlineCompletionItemWithAnalytics[]
-    cacheHit: 'hit' | 'hit-after-request-started' | null
+    source: InlineCompletionsResultSource
+}
+
+interface RequestsManagerParams {
+    requestParams: RequestParams
+    providers: Provider[]
+    context: ContextSnippet[]
+    isCacheEnabled: boolean
+    tracer?: CompletionProviderTracer
 }
 
 /**
@@ -48,66 +58,86 @@ export interface RequestManagerResult {
 export class RequestManager {
     private cache = new RequestCache()
     private readonly inflightRequests: Set<InflightRequest> = new Set()
-    private disableNetworkCache = false
     private disableRecyclingOfPreviousRequests = false
 
     constructor(
         {
-            disableNetworkCache = false,
             disableRecyclingOfPreviousRequests = false,
         }: {
-            disableNetworkCache?: boolean
             disableRecyclingOfPreviousRequests?: boolean
         } = {
-            disableNetworkCache: false,
             disableRecyclingOfPreviousRequests: false,
         }
     ) {
-        this.disableNetworkCache = disableNetworkCache
         this.disableRecyclingOfPreviousRequests = disableRecyclingOfPreviousRequests
     }
 
-    public async request(
-        params: RequestParams,
-        providers: Provider[],
-        context: ContextSnippet[],
-        tracer?: CompletionProviderTracer
-    ): Promise<RequestManagerResult> {
-        if (!this.disableNetworkCache) {
-            const cachedCompletions = this.cache.get(params)
-            if (cachedCompletions) {
-                return { completions: cachedCompletions, cacheHit: 'hit' }
-            }
+    public async request(params: RequestsManagerParams): Promise<RequestManagerResult> {
+        const { requestParams, providers, context, isCacheEnabled, tracer } = params
+
+        const cachedCompletions = this.cache.get(requestParams)
+        if (isCacheEnabled && cachedCompletions) {
+            console.log('using cache', cachedCompletions)
+            return cachedCompletions
         }
 
         // When request recycling is enabled, we do not pass the original abort signal forward as to
         // not interrupt requests that are no longer relevant. Instead, we let all previous requests
         // complete and try to see if their results can be reused for other inflight requests.
         let abortController: AbortController = new AbortController()
-        if (this.disableRecyclingOfPreviousRequests && params.abortSignal) {
-            abortController = forkSignal(params.abortSignal)
+        if (this.disableRecyclingOfPreviousRequests && requestParams.abortSignal) {
+            abortController = forkSignal(requestParams.abortSignal)
         }
 
-        const request = new InflightRequest(params, abortController)
+        const request = new InflightRequest(requestParams, abortController)
         this.inflightRequests.add(request)
 
         Promise.all(
-            providers.map(provider => provider.generateCompletions(request.abortController.signal, context, tracer))
+            providers.map(provider => {
+                return wrapInActiveSpan('autocomplete.generate', () => {
+                    const completionReadyPromise = new Promise<InlineCompletionItemWithAnalytics[]>(
+                        (resolve, reject) => {
+                            provider
+                                .generateCompletions(
+                                    request.abortController.signal,
+                                    context,
+                                    resolve,
+                                    (docContext, hotStreakCompletions) => {
+                                        this.cache.set(
+                                            { docContext },
+                                            {
+                                                completions: [hotStreakCompletions],
+                                                source: InlineCompletionsResultSource.HotStreak,
+                                            }
+                                        )
+                                    },
+                                    tracer
+                                )
+                                .catch(error => reject(error))
+                        }
+                    )
+
+                    return completionReadyPromise
+                })
+            })
         )
             .then(res => res.flat())
             .then(completions => {
                 // Shared post-processing logic
-                return processInlineCompletions(completions, params)
+                return wrapInActiveSpan('autocomplete.post-process', () =>
+                    processInlineCompletions(completions, requestParams)
+                )
             })
             .then(processedCompletions => {
-                if (!this.disableNetworkCache) {
-                    // Cache even if the request was aborted or already fulfilled.
-                    this.cache.set(params, processedCompletions)
-                }
+                // Cache even if the request was aborted or already fulfilled.
+                this.cache.set(requestParams, {
+                    completions: processedCompletions,
+                    source: InlineCompletionsResultSource.Cache,
+                })
 
                 // A promise will never resolve twice, so we do not need to
                 // check if the request was already fulfilled.
-                request.resolve({ completions: processedCompletions, cacheHit: null })
+                request.resolve({ completions: processedCompletions, source: InlineCompletionsResultSource.Network })
 
                 if (!this.disableRecyclingOfPreviousRequests) {
                     this.testIfResultCanBeRecycledForInflightRequests(request, processedCompletions)
@@ -170,8 +200,11 @@ export class RequestManager {
             if (synthesizedCandidate) {
                 const synthesizedItems = synthesizedCandidate.items
 
-                logCompletionEvent('synthesizedFromParallelRequest')
-                request.resolve({ completions: synthesizedItems, cacheHit: 'hit-after-request-started' })
+                logCompletionBookkeepingEvent('synthesizedFromParallelRequest')
+                request.resolve({
+                    completions: synthesizedItems,
+                    source: InlineCompletionsResultSource.CacheAfterRequestStart,
+                })
                 request.abortController.abort()
                 this.inflightRequests.delete(request)
             }
@@ -200,19 +233,24 @@ class InflightRequest {
     }
 }
 
+interface RequestCacheItem {
+    completions: InlineCompletionItemWithAnalytics[]
+    source: InlineCompletionsResultSource
+}
 class RequestCache {
-    private cache = new LRUCache<string, InlineCompletionItemWithAnalytics[]>({ max: 50 })
+    private cache = new LRUCache<string, RequestCacheItem>({
+        max: 50,
+    })
 
-    private toCacheKey(key: RequestParams): string {
+    private toCacheKey(key: Pick<RequestParams, 'docContext'>): string {
         return `${key.docContext.prefix}█${key.docContext.nextNonEmptyLine}`
     }
-
-    public get(key: RequestParams): InlineCompletionItemWithAnalytics[] | undefined {
+    public get(key: RequestParams): RequestCacheItem | undefined {
         return this.cache.get(this.toCacheKey(key))
     }
 
-    public set(key: RequestParams, entry: InlineCompletionItemWithAnalytics[]): void {
-        this.cache.set(this.toCacheKey(key), entry)
+    public set(key: Pick<RequestParams, 'docContext'>, item: RequestCacheItem): void {
+        this.cache.set(this.toCacheKey(key), item)
     }
 
     public delete(key: RequestParams): void {

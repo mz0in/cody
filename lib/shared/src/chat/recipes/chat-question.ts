@@ -41,7 +41,7 @@ export class ChatQuestion implements Recipe {
                 this.getContextMessages(
                     truncatedText,
                     context.editor,
-                    context.firstInteraction,
+                    context.addEnhancedContext,
                     context.intentDetector,
                     context.codebaseContext,
                     context.editor.getActiveTextEditorSelection() || null,
@@ -55,31 +55,32 @@ export class ChatQuestion implements Recipe {
     private async getContextMessages(
         text: string,
         editor: Editor,
-        firstInteraction: boolean,
+        addEnhancedContext: boolean,
         intentDetector: IntentDetector,
         codebaseContext: CodebaseContext,
         selection: ActiveTextEditorSelection | null,
         contextFiles?: ContextFile[]
     ): Promise<ContextMessage[]> {
         const contextMessages: ContextMessage[] = []
+        // Unless context files are provided, we don't need to add any context
         // If input is less than 2 words, it means it's most likely a statement or a follow-up question that does not require additional context
         // e,g. "hey", "hi", "why", "explain" etc.
         const isTextTooShort = isSingleWord(text)
         if (isTextTooShort) {
-            return contextMessages
+            if (!contextFiles?.length) {
+                return contextMessages
+            }
+            return ChatQuestion.getContextFilesContext(editor, contextFiles)
         }
 
-        const isCodebaseContextRequired = firstInteraction || (await intentDetector.isCodebaseContextRequired(text))
-
-        this.debug('ChatQuestion:getContextMessages', 'isCodebaseContextRequired', isCodebaseContextRequired)
-        if (isCodebaseContextRequired) {
+        this.debug('ChatQuestion:getContextMessages', 'addEnhancedContext', addEnhancedContext)
+        if (addEnhancedContext) {
             const codebaseContextMessages = await codebaseContext.getCombinedContextMessages(text, numResults)
             contextMessages.push(...codebaseContextMessages)
         }
-
         const isEditorContextRequired = intentDetector.isEditorContextRequired(text)
         this.debug('ChatQuestion:getContextMessages', 'isEditorContextRequired', isEditorContextRequired)
-        if (isCodebaseContextRequired || isEditorContextRequired) {
+        if (isEditorContextRequired) {
             contextMessages.push(...ChatQuestion.getEditorContext(editor))
         }
 
@@ -121,12 +122,14 @@ export class ChatQuestion implements Recipe {
         for (const file of contextFiles) {
             if (file?.uri) {
                 const content = await editor.getTextEditorContentForFile(file?.uri, file.range)
+                console.log(content, file.uri.fsPath)
                 if (content) {
                     const message = createContextMessageByFile(file, content)
                     contextFileMessages.push(...message)
                 }
             }
         }
+        console.log(contextFileMessages)
         return contextFileMessages
     }
 }

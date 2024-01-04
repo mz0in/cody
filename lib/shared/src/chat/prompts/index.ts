@@ -7,7 +7,7 @@ import { toSlashCommand } from './utils'
 // A list of default cody commands
 export type CodyDefaultCommands = 'ask' | 'doc' | 'edit' | 'explain' | 'smell' | 'test' | 'reset'
 
-export const defaultChatCommands = new Set(['explain', 'doc', 'edit', 'smell', 'test'])
+export const defaultChatCommands = new Set(['explain', 'doc', 'edit', 'smell', 'test', 'ask', 'reset'])
 
 export function getDefaultCommandsMap(editorCommands: CodyPrompt[] = []): Map<string, CodyPrompt> {
     const map = new Map<string, CodyPrompt>()
@@ -68,16 +68,16 @@ export interface CodyPrompt {
 
     // internal properties
     contextFiles?: ContextFile[]
+    additionalInput?: string
 }
 
 /**
  * - ask mode is the default mode, run prompt in sidebar
- * - inline mode will run prompt in inline chat
  * - edit mode will run prompt with fixup
  * - insert mode is the same as edit, but instead of replacing selection with cody's response,
  * it adds to the top of the selection instead
  */
-export type CodyPromptMode = 'ask' | 'inline' | 'edit' | 'insert'
+export type CodyPromptMode = 'ask' | 'edit' | 'insert'
 
 // Type of context available for prompt building
 export interface CodyPromptContext {

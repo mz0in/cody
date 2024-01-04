@@ -2,20 +2,24 @@ import React, { useState } from 'react'
 
 import classNames from 'classnames'
 
-import { ChatMessage } from '@sourcegraph/cody-shared'
+import { ChatMessage, Guardrails } from '@sourcegraph/cody-shared'
 
 import {
+    ApiPostMessage,
     ChatButtonProps,
     ChatUISubmitButtonProps,
     ChatUITextAreaProps,
     CodeBlockActionsProps,
     EditButtonProps,
     FeedbackButtonsProps,
+    UserAccountInfo,
 } from '../Chat'
 
-import { BlinkingCursor } from './BlinkingCursor'
+import { BlinkingCursor, LoadingContext } from './BlinkingCursor'
 import { CodeBlocks } from './CodeBlocks'
-import { ContextFiles, FileLinkProps } from './ContextFiles'
+import { FileLinkProps } from './components/ContextFiles'
+import { EnhancedContext } from './components/EnhancedContext'
+import { ErrorItem, RequestErrorItem } from './ErrorItem'
 import { PreciseContexts, SymbolLinkProps } from './PreciseContext'
 
 import styles from './TranscriptItem.module.css'
@@ -57,6 +61,9 @@ export const TranscriptItem: React.FunctionComponent<
         abortMessageInProgressComponent?: React.FunctionComponent<{ onAbortMessageInProgress: () => void }>
         onAbortMessageInProgress?: () => void
         ChatButtonComponent?: React.FunctionComponent<ChatButtonProps>
+        userInfo: UserAccountInfo
+        postMessage?: ApiPostMessage
+        guardrails?: Guardrails
     } & TranscriptItemClassNames
 > = React.memo(function TranscriptItemContent({
     message,
@@ -83,9 +90,12 @@ export const TranscriptItem: React.FunctionComponent<
     submitButtonComponent: SubmitButton,
     chatInputClassName,
     ChatButtonComponent,
+    userInfo,
+    postMessage,
+    guardrails,
 }) {
     const [formInput, setFormInput] = useState<string>(message.displayText ?? '')
-    const textarea =
+    const EditTextArea =
         TextArea && beingEdited && editButtonOnSubmit && SubmitButton ? (
             <div className={styles.textAreaContainer}>
                 <TextArea
@@ -131,29 +141,16 @@ export const TranscriptItem: React.FunctionComponent<
                 message.speaker === 'human' ? humanTranscriptItemClassName : styles.assistantRow
             )}
         >
-            {/* display edit buttons on last user message, feedback buttons on last assistant message only */}
-            {EditButtonContainer && beingEdited && <p className={classNames(styles.editingLabel)}>Editing...</p>}
             {showEditButton && EditButtonContainer && editButtonOnSubmit && TextArea && message.speaker === 'human' && (
-                <header
-                    className={classNames(
-                        beingEdited ? styles.editingContainer : styles.headerContainer,
-                        transcriptItemParticipantClassName
-                    )}
-                >
-                    <EditButtonContainer
-                        className={styles.FeedbackEditButtonsContainer}
-                        messageBeingEdited={beingEdited}
-                        setMessageBeingEdited={setBeingEdited}
-                    />
-                </header>
-            )}
-            {message.contextFiles && message.contextFiles.length > 0 && (
-                <div className={styles.actions}>
-                    <ContextFiles
-                        contextFiles={message.contextFiles}
-                        fileLinkComponent={fileLinkComponent}
-                        className={transcriptActionClassName}
-                    />
+                <div className={beingEdited ? styles.editingContainer : styles.editingButtonContainer}>
+                    <header className={classNames(styles.transcriptItemHeader, transcriptItemParticipantClassName)}>
+                        {beingEdited && <p className={classNames(styles.editingLabel)}>Editing...</p>}
+                        <EditButtonContainer
+                            className={styles.FeedbackEditButtonsContainer}
+                            messageBeingEdited={beingEdited}
+                            setMessageBeingEdited={setBeingEdited}
+                        />
+                    </header>
                 </div>
             )}
             {message.preciseContext && message.preciseContext.length > 0 && (
@@ -165,31 +162,54 @@ export const TranscriptItem: React.FunctionComponent<
                     />
                 </div>
             )}
-            <div
-                className={classNames(
-                    styles.contentPadding,
-                    textarea ? undefined : styles.content,
-                    inProgress && styles.rowInProgress
-                )}
-            >
-                {message.displayText ? (
-                    textarea ?? (
-                        <CodeBlocks
-                            displayText={message.displayText}
-                            copyButtonClassName={codeBlocksCopyButtonClassName}
-                            copyButtonOnSubmit={copyButtonOnSubmit}
-                            insertButtonClassName={codeBlocksInsertButtonClassName}
-                            insertButtonOnSubmit={insertButtonOnSubmit}
-                            metadata={message.metadata}
-                            inProgress={inProgress}
-                        />
-                    )
-                ) : inProgress ? (
-                    <BlinkingCursor />
-                ) : null}
-            </div>
+            {message.error ? (
+                typeof message.error === 'string' ? (
+                    <RequestErrorItem error={message.error} />
+                ) : (
+                    <ErrorItem
+                        error={message.error}
+                        ChatButtonComponent={ChatButtonComponent}
+                        userInfo={userInfo}
+                        postMessage={postMessage}
+                    />
+                )
+            ) : (
+                <div className={classNames(styles.contentPadding, EditTextArea ? undefined : styles.content)}>
+                    {message.displayText && !message.error ? (
+                        EditTextArea ? (
+                            !inProgress && !message.displayText.startsWith('/') && EditTextArea
+                        ) : (
+                            <CodeBlocks
+                                displayText={message.displayText}
+                                copyButtonClassName={codeBlocksCopyButtonClassName}
+                                copyButtonOnSubmit={copyButtonOnSubmit}
+                                insertButtonClassName={codeBlocksInsertButtonClassName}
+                                insertButtonOnSubmit={insertButtonOnSubmit}
+                                metadata={message.metadata}
+                                inProgress={inProgress}
+                                guardrails={guardrails}
+                            />
+                        )
+                    ) : (
+                        inProgress && <BlinkingCursor />
+                    )}
+                </div>
+            )}
             {message.buttons?.length && ChatButtonComponent && (
                 <div className={styles.actions}>{message.buttons.map(ChatButtonComponent)}</div>
+            )}
+            {message.speaker === 'human' && (
+                <div className={styles.contextFilesContainer}>
+                    {message.contextFiles && message.contextFiles.length > 0 ? (
+                        <EnhancedContext
+                            contextFiles={message.contextFiles}
+                            fileLinkComponent={fileLinkComponent}
+                            className={transcriptActionClassName}
+                        />
+                    ) : (
+                        inProgress && <LoadingContext />
+                    )}
+                </div>
             )}
             {showFeedbackButtons &&
                 FeedbackButtonsContainer &&

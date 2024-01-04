@@ -2,8 +2,9 @@ import * as vscode from 'vscode'
 
 import { CodeBlockMeta } from '@sourcegraph/cody-ui/src/chat/CodeBlocks'
 
-import { getActiveEditor } from '../../editor/active-editor'
+import { getEditor } from '../../editor/active-editor'
 import { telemetryService } from '../telemetry'
+import { telemetryRecorder } from '../telemetry-v2'
 
 import { countCode, matchCodeSnippets } from './code-count'
 
@@ -37,7 +38,18 @@ export function setLastStoredCode(
     const op = eventName.includes('copy') ? 'copy' : eventName.startsWith('insert') ? 'insert' : 'save'
     const args = { op, charCount, lineCount, source, requestID }
 
-    telemetryService.log(`CodyVSCodeExtension:${eventName}:clicked`, args)
+    telemetryService.log(`CodyVSCodeExtension:${eventName}:clicked`, { args, hasV2Event: true })
+    telemetryRecorder.recordEvent(`cody.${eventName}`, 'clicked', {
+        metadata: {
+            lineCount,
+            charCount,
+        },
+        interactionID: requestID,
+        privateMetadata: {
+            source,
+            op,
+        },
+    })
 
     return codeCount
 }
@@ -52,15 +64,16 @@ export async function setLastTextFromClipboard(clipboardText?: string): Promise<
  * Note: Using workspaceEdit instead of 'editor.action.insertSnippet' as the later reformats the text incorrectly
  */
 export async function handleCodeFromInsertAtCursor(text: string, meta?: CodeBlockMeta): Promise<void> {
-    const selectionRange = getActiveEditor()?.selection
-    const editor = getActiveEditor()
-    if (!editor || !selectionRange) {
+    const editor = getEditor()
+    const activeEditor = editor.active
+    const selectionRange = activeEditor?.selection
+    if (!activeEditor || !selectionRange) {
         throw new Error('No editor or selection found to insert text')
     }
 
     const edit = new vscode.WorkspaceEdit()
     // trimEnd() to remove new line added by Cody
-    edit.insert(editor.document.uri, selectionRange.start, text + '\n')
+    edit.insert(activeEditor.document.uri, selectionRange.start, text + '\n')
     await vscode.workspace.applyEdit(edit)
 
     // Log insert event
@@ -126,14 +139,27 @@ export async function onTextDocumentChange(newCode: string): Promise<void> {
     // the copied code should be the same as the clipboard text
     if (matchCodeSnippets(code, lastClipboardText) && matchCodeSnippets(code, newCode)) {
         const op = 'paste'
-        const eventType = source.startsWith('inline') ? 'inlineChat' : 'keyDown'
-        // 'CodyVSCodeExtension:inlineChat:Paste:clicked' or 'CodyVSCodeExtension:keyDown:Paste:clicked'
+        const eventType = 'keyDown'
+        // e.g.'CodyVSCodeExtension:keyDown:Paste:clicked'
         telemetryService.log(`CodyVSCodeExtension:${eventType}:Paste:clicked`, {
             op,
             lineCount,
             charCount,
             source,
             requestID,
+            hasV2Event: true,
+        })
+
+        telemetryRecorder.recordEvent(`cody.${eventType}`, 'paste', {
+            metadata: {
+                lineCount,
+                charCount,
+            },
+            interactionID: requestID,
+            privateMetadata: {
+                source,
+                op,
+            },
         })
     }
 }
